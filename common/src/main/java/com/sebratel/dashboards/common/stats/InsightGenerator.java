@@ -2,6 +2,7 @@ package com.sebratel.dashboards.common.stats;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /** Turns raw statistics into human-readable, Portuguese-language insight sentences for the dashboard. */
 public final class InsightGenerator {
@@ -24,7 +25,9 @@ public final class InsightGenerator {
                     "period_change",
                     Math.abs(pct) >= 20 ? "warning" : "info",
                     String.format("%s %s %.1f%% %s em relação ao período anterior", metricLabel, direction, Math.abs(pct), period),
-                    pct
+                    pct,
+                    null,
+                    pct >= 0 ? Insight.POSITIVE : Insight.NEGATIVE
             ));
         }
 
@@ -34,7 +37,9 @@ public final class InsightGenerator {
             insights.add(Insight.info(
                     "yoy_change",
                     String.format("%s %s %.1f%% comparado ao mesmo mês do ano anterior", metricLabel, direction, Math.abs(pct)),
-                    pct
+                    pct,
+                    null,
+                    pct >= 0 ? Insight.POSITIVE : Insight.NEGATIVE
             ));
         }
 
@@ -43,7 +48,9 @@ public final class InsightGenerator {
             insights.add(Insight.info(
                     "trend",
                     String.format("%s apresenta %s ao longo do período analisado", metricLabel, direction),
-                    series.trendSlope()
+                    series.trendSlope(),
+                    null,
+                    series.trendSlope() > 0 ? Insight.POSITIVE : Insight.NEGATIVE
             ));
         }
 
@@ -59,7 +66,8 @@ public final class InsightGenerator {
             insights.add(Insight.warning(
                     "outliers",
                     String.format("%s tem %d valores atípicos (%.1f%% dos registros, método IQR)", columnLabel, stats.outliers().iqrOutlierCount(), pct),
-                    pct
+                    pct,
+                    columnLabel
             ));
         }
 
@@ -68,7 +76,8 @@ public final class InsightGenerator {
             insights.add(Insight.info(
                     "skewness",
                     String.format("Distribuição de %s é assimétrica %s", columnLabel, direction),
-                    stats.skewness()
+                    stats.skewness(),
+                    columnLabel
             ));
         }
 
@@ -76,7 +85,8 @@ public final class InsightGenerator {
             insights.add(Insight.info(
                     "dispersion",
                     String.format("%s tem alta dispersão relativa (CV=%.2f) — valores muito heterogêneos", columnLabel, stats.coefficientOfVariation()),
-                    stats.coefficientOfVariation()
+                    stats.coefficientOfVariation(),
+                    columnLabel
             ));
         }
 
@@ -109,25 +119,73 @@ public final class InsightGenerator {
 
         var top = stats.distribution().get(0);
         if (top.percentage() >= 50) {
-            insights.add(Insight.info(
-                    "concentration",
-                    String.format("'%s' concentra %.1f%% dos registros de %s", top.label(), top.percentage(), columnLabel),
-                    top.percentage()
-            ));
-        }
-
-        if (stats.distinctCount() > 1) {
-            double maxEntropy = Math.log(stats.distinctCount()) / Math.log(2);
-            double normalized = maxEntropy > 0 ? stats.shannonEntropy() / maxEntropy : 0;
-            if (normalized < 0.3) {
+            if (isMissingLabel(top.label())) {
+                // A column dominated by null/blank is incomplete data, not a real concentration — flag it as bad.
                 insights.add(Insight.info(
-                        "low_diversity",
-                        String.format("%s tem baixa diversidade de categorias (entropia normalizada %.2f)", columnLabel, normalized),
-                        normalized
+                        "missing_concentration",
+                        String.format("%.1f%% dos registros de %s estão sem preenchimento (null/vazio) — dado incompleto", top.percentage(), columnLabel),
+                        top.percentage(),
+                        columnLabel,
+                        Insight.NEGATIVE
+                ));
+            } else {
+                insights.add(Insight.info(
+                        "concentration",
+                        String.format("'%s' concentra %.1f%% dos registros de %s", top.label(), top.percentage(), columnLabel),
+                        top.percentage(),
+                        columnLabel
                 ));
             }
         }
 
         return insights;
+    }
+
+    private static boolean isMissingLabel(String label) {
+        return StatsEngine.EMPTY_LABEL.equals(label) || "null".equalsIgnoreCase(label);
+    }
+
+    /** A duration column with a good/bad target: lower is always better (wait and response times). */
+    private record DurationTarget(String label, long thresholdSeconds) {
+    }
+
+    // "Padrão call center": queue wait <= 5min, team response (TMIA) <= 3min, client response (TMIC) <= 10min.
+    private static final Map<String, DurationTarget> DURATION_TARGETS = Map.of(
+            "tempo_fila", new DurationTarget("tempo de espera em fila", 300),
+            "tmia", new DurationTarget("tempo de resposta do time", 180),
+            "tmic", new DurationTarget("tempo de resposta do cliente", 600)
+    );
+
+    /**
+     * For known duration columns, report the average time against its target — the real analytical
+     * goal (is the queue short, is the team/client responding fast?), flagged good/bad by the target.
+     */
+    public static List<Insight> fromDuration(String column, CategoricalStats stats) {
+        List<Insight> insights = new ArrayList<>();
+        DurationTarget target = DURATION_TARGETS.get(column);
+        if (target == null || stats.durationSummary() == null) return insights;
+
+        long mean = Math.round(stats.durationSummary().meanSeconds());
+        boolean good = mean <= target.thresholdSeconds();
+        insights.add(Insight.info(
+                "duration",
+                String.format("%s: média de %s (meta ≤ %s)",
+                        capitalize(target.label()), formatHms(mean), formatHms(target.thresholdSeconds())),
+                (double) mean,
+                column,
+                good ? Insight.POSITIVE : Insight.NEGATIVE
+        ));
+        return insights;
+    }
+
+    private static String capitalize(String text) {
+        return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
+    }
+
+    private static String formatHms(long totalSeconds) {
+        long h = totalSeconds / 3600;
+        long m = (totalSeconds % 3600) / 60;
+        long s = totalSeconds % 60;
+        return String.format("%02d:%02d:%02d", h, m, s);
     }
 }

@@ -113,6 +113,7 @@ public class TableDataService {
                 var stats = StatsEngine.categorical(values);
                 columnStats.add(new ColumnStats(column.name(), column.type(), null, stats));
                 insights.addAll(InsightGenerator.fromCategorical(column.name(), stats));
+                insights.addAll(InsightGenerator.fromDuration(column.name(), stats));
             }
         }
 
@@ -145,7 +146,9 @@ public class TableDataService {
         List<Long> counts = rows.stream().map(r -> ((Number) r.get("cnt")).longValue()).toList();
 
         TimeSeriesResult series = StatsEngine.timeSeries(granularity, labels, counts);
-        List<Insight> insights = InsightGenerator.fromTimeSeries(table + "." + dateColumn, series);
+        // The series counts rows per period, so the insight subject is the record volume — not the
+        // raw date column, which read as "db_matrix.data_entrada" and confused what was measured.
+        List<Insight> insights = InsightGenerator.fromTimeSeries("O volume de registros", series);
 
         return new TimeSeriesResponse(table, dateColumn, series, insights);
     }
