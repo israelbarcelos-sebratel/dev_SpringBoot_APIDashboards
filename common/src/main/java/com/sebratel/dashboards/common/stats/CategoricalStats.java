@@ -8,8 +8,16 @@ public record CategoricalStats(
         String mode,
         double shannonEntropy,
         Map<String, Long> topFrequencies,
-        List<CategoryShare> distribution
+        List<CategoryShare> distribution,
+        DurationSummary durationSummary
 ) {
     public record CategoryShare(String label, long count, double percentage) {
+    }
+
+    /**
+     * Present only when the column's values look like "HH:MM:SS" durations. Aggregated over ALL
+     * rows (not just the top-N distribution), so totals are accurate even for the long tail.
+     */
+    public record DurationSummary(long totalSeconds, long count, double meanSeconds) {
     }
 }

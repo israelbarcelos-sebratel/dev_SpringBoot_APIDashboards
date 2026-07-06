@@ -40,33 +40,41 @@ public class TableController {
                           @RequestParam(required = false) String sort,
                           @RequestParam(defaultValue = "desc") String dir,
                           @RequestParam Map<String, String> allParams) {
-        Map<String, String> filters = new java.util.HashMap<>(allParams);
-        filters.remove("page");
-        filters.remove("size");
-        filters.remove("sort");
-        filters.remove("dir");
-        return tableDataService.getRows(table, page, size, sort, dir, filters);
+        return tableDataService.getRows(table, page, size, sort, dir, filtersFrom(allParams));
     }
 
     @GetMapping("/api/tables/{table}/stats")
-    public StatsResponse stats(@PathVariable String table) {
-        return tableDataService.getStats(table);
+    public StatsResponse stats(@PathVariable String table, @RequestParam Map<String, String> allParams) {
+        return tableDataService.getStats(table, filtersFrom(allParams));
     }
 
     @GetMapping("/api/tables/{table}/timeseries")
     public TimeSeriesResponse timeSeries(@PathVariable String table,
                                           @RequestParam(required = false) String column,
-                                          @RequestParam(defaultValue = "month") String granularity) {
-        return tableDataService.getTimeSeries(table, column, granularity);
+                                          @RequestParam(defaultValue = "month") String granularity,
+                                          @RequestParam Map<String, String> allParams) {
+        return tableDataService.getTimeSeries(table, column, granularity, filtersFrom(allParams));
     }
 
     @GetMapping("/api/tables/{table}/correlations")
-    public CorrelationResponse correlations(@PathVariable String table) {
-        return tableDataService.getCorrelations(table);
+    public CorrelationResponse correlations(@PathVariable String table, @RequestParam Map<String, String> allParams) {
+        return tableDataService.getCorrelations(table, filtersFrom(allParams));
     }
 
     @GetMapping("/api/tables/{table}/insights")
-    public List<Insight> insights(@PathVariable String table) {
-        return tableDataService.getInsights(table);
+    public List<Insight> insights(@PathVariable String table, @RequestParam Map<String, String> allParams) {
+        return tableDataService.getInsights(table, filtersFrom(allParams));
+    }
+
+    /** Strip pagination/sort/series knobs so only real column filters reach the query layer. */
+    private static Map<String, String> filtersFrom(Map<String, String> allParams) {
+        Map<String, String> filters = new java.util.HashMap<>(allParams);
+        filters.remove("page");
+        filters.remove("size");
+        filters.remove("sort");
+        filters.remove("dir");
+        filters.remove("column");
+        filters.remove("granularity");
+        return filters;
     }
 }

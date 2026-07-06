@@ -70,19 +70,11 @@ public class TableDataService {
         String orderBy = validColumns.contains(sortColumn) ? sortColumn : schema.columns().get(0).name();
         String direction = "asc".equalsIgnoreCase(sortDir) ? "ASC" : "DESC";
 
-        List<Object> params = new ArrayList<>();
-        StringBuilder where = new StringBuilder();
-        for (Map.Entry<String, String> f : filters.entrySet()) {
-            if (!validColumns.contains(f.getKey()) || f.getValue() == null || f.getValue().isBlank()) continue;
-            where.append(where.isEmpty() ? " WHERE " : " AND ");
-            where.append('`').append(f.getKey()).append("` = ?");
-            params.add(f.getValue());
-        }
+        Where filter = buildWhere(schema, filters);
+        String baseQuery = "FROM `" + table + "`" + filter.leading();
+        long total = jdbcTemplate.queryForObject("SELECT COUNT(*) " + baseQuery, filter.params().toArray(), Long.class);
 
-        String baseQuery = "FROM `" + table + "`" + where;
-        long total = jdbcTemplate.queryForObject("SELECT COUNT(*) " + baseQuery, params.toArray(), Long.class);
-
-        List<Object> pageParams = new ArrayList<>(params);
+        List<Object> pageParams = new ArrayList<>(filter.params());
         pageParams.add(Math.max(size, 1));
         pageParams.add(Math.max(page, 0) * Math.max(size, 1));
 
@@ -93,22 +85,30 @@ public class TableDataService {
         return new RowsPage(rows, total, page, size);
     }
 
-    public StatsResponse getStats(String table) {
+    public StatsResponse getStats(String table, Map<String, String> filters) {
         TableSchema schema = getSchema(table);
+        Where filter = buildWhere(schema, filters);
         List<ColumnStats> columnStats = new ArrayList<>();
         List<Insight> insights = new ArrayList<>();
+
+        long rowCount = filter.isEmpty()
+                ? schema.rowCount()
+                : jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM `" + table + "`" + filter.leading(), filter.params().toArray(), Long.class);
 
         for (ColumnMetadata column : schema.columns()) {
             if (column.type() == ColumnType.NUMERIC || column.type() == ColumnType.INTEGER) {
                 List<Double> values = jdbcTemplate.queryForList(
-                        "SELECT `" + column.name() + "` FROM `" + table + "` WHERE `" + column.name() + "` IS NOT NULL",
-                        Double.class);
+                        "SELECT `" + column.name() + "` FROM `" + table + "` WHERE `" + column.name() + "` IS NOT NULL"
+                                + filter.additional(),
+                        filter.params().toArray(), Double.class);
                 var stats = StatsEngine.descriptive(values);
                 columnStats.add(new ColumnStats(column.name(), column.type(), stats, null));
                 insights.addAll(InsightGenerator.fromDescriptive(column.name(), stats));
             } else if (column.type() == ColumnType.CATEGORICAL || column.type() == ColumnType.BOOLEAN) {
                 List<String> values = jdbcTemplate.queryForList(
-                        "SELECT `" + column.name() + "` FROM `" + table + "`", Object.class)
+                        "SELECT `" + column.name() + "` FROM `" + table + "`" + filter.leading(),
+                        filter.params().toArray(), Object.class)
                         .stream().map(v -> v == null ? null : v.toString()).toList();
                 var stats = StatsEngine.categorical(values);
                 columnStats.add(new ColumnStats(column.name(), column.type(), null, stats));
@@ -116,23 +116,30 @@ public class TableDataService {
             }
         }
 
-        return new StatsResponse(table, schema.rowCount(), columnStats, insights);
+        return new StatsResponse(table, rowCount, columnStats, insights);
     }
 
-    public TimeSeriesResponse getTimeSeries(String table, String requestedColumn, String granularity) {
+    public TimeSeriesResponse getTimeSeries(String table, String requestedColumn, String granularity,
+                                             Map<String, String> filters) {
         TableSchema schema = getSchema(table);
         String dateColumn = resolveDateColumn(schema, requestedColumn);
+        Where filter = buildWhere(schema, filters);
         String format = switch (granularity) {
             case "day" -> "%Y-%m-%d";
             case "week" -> "%x-W%v";
             default -> "%Y-%m";
         };
 
+        List<Object> params = new ArrayList<>();
+        params.add(format);
+        params.addAll(filter.params());
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT DATE_FORMAT(`" + dateColumn + "`, ?) AS period, COUNT(*) AS cnt " +
-                        "FROM `" + table + "` WHERE `" + dateColumn + "` IS NOT NULL " +
-                        "GROUP BY period ORDER BY period ASC",
-                format);
+                        "FROM `" + table + "` WHERE `" + dateColumn + "` IS NOT NULL " + filter.additional() +
+                        " GROUP BY period ORDER BY period ASC",
+                params.toArray());
+
+        rows = dropNegligiblePeriods(rows);
 
         List<String> labels = rows.stream().map(r -> String.valueOf(r.get("period"))).toList();
         List<Long> counts = rows.stream().map(r -> ((Number) r.get("cnt")).longValue()).toList();
@@ -143,8 +150,9 @@ public class TableDataService {
         return new TimeSeriesResponse(table, dateColumn, series, insights);
     }
 
-    public CorrelationResponse getCorrelations(String table) {
+    public CorrelationResponse getCorrelations(String table, Map<String, String> filters) {
         TableSchema schema = getSchema(table);
+        Where filter = buildWhere(schema, filters);
         List<ColumnMetadata> numericColumns = schema.columns().stream()
                 .filter(c -> c.type() == ColumnType.NUMERIC || c.type() == ColumnType.INTEGER)
                 .toList();
@@ -158,7 +166,8 @@ public class TableDataService {
                 .reduce((a, b) -> a + ", " + b).orElse("");
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT " + columnList + " FROM `" + table + "`");
+                "SELECT " + columnList + " FROM `" + table + "`" + filter.leading(),
+                filter.params().toArray());
 
         LinkedHashMap<String, List<Double>> columnValues = new LinkedHashMap<>();
         for (ColumnMetadata col : numericColumns) {
@@ -176,17 +185,82 @@ public class TableDataService {
         return new CorrelationResponse(table, correlation, insights);
     }
 
-    public List<Insight> getInsights(String table) {
+    public List<Insight> getInsights(String table, Map<String, String> filters) {
         List<Insight> insights = new ArrayList<>();
         TableSchema schema = getSchema(table);
 
         boolean hasDateColumn = schema.columns().stream().anyMatch(c -> c.type() == ColumnType.DATETIME);
         if (hasDateColumn) {
-            insights.addAll(getTimeSeries(table, null, "month").insights());
+            insights.addAll(getTimeSeries(table, null, "month", filters).insights());
         }
-        insights.addAll(getStats(table).insights());
-        insights.addAll(getCorrelations(table).insights());
+        insights.addAll(getStats(table, filters).insights());
+        insights.addAll(getCorrelations(table, filters).insights());
         return insights;
+    }
+
+    /**
+     * Equality filter clause built from request params. Only keys matching an actual column of the
+     * table are honored (blank values are ignored), so filters can never inject arbitrary SQL — the
+     * column identifiers come from the introspected schema, never straight from the request. Exposes
+     * the same conditions as either a leading {@code WHERE ...} or a trailing {@code AND ...} so it
+     * composes with queries that already carry a {@code WHERE col IS NOT NULL} guard.
+     */
+    private record Where(String conditions, List<Object> params) {
+        boolean isEmpty() {
+            return conditions.isEmpty();
+        }
+
+        String leading() {
+            return isEmpty() ? "" : " WHERE " + conditions;
+        }
+
+        String additional() {
+            return isEmpty() ? "" : " AND " + conditions;
+        }
+    }
+
+    private Where buildWhere(TableSchema schema, Map<String, String> filters) {
+        if (filters == null || filters.isEmpty()) {
+            return new Where("", List.of());
+        }
+        Set<String> validColumns = columnNames(schema);
+        StringBuilder conditions = new StringBuilder();
+        List<Object> params = new ArrayList<>();
+        for (Map.Entry<String, String> f : filters.entrySet()) {
+            if (!validColumns.contains(f.getKey()) || f.getValue() == null || f.getValue().isBlank()) continue;
+            if (!conditions.isEmpty()) conditions.append(" AND ");
+            if (StatsEngine.EMPTY_LABEL.equals(f.getValue())) {
+                // The categorical engine buckets SQL NULL / empty / whitespace-only rows under the
+                // "(vazio)" label; selecting it must match those rows, not a literal "(vazio)" string.
+                conditions.append("(`").append(f.getKey()).append("` IS NULL OR TRIM(`")
+                        .append(f.getKey()).append("`) = '')");
+            } else {
+                conditions.append('`').append(f.getKey()).append("` = ?");
+                params.add(f.getValue());
+            }
+        }
+        return new Where(conditions.toString(), params);
+    }
+
+    /** Periods below this fraction of the busiest period are treated as noise and dropped. */
+    private static final double PERIOD_VOLUME_FLOOR_RATIO = 0.01;
+
+    /**
+     * Some tables carry a handful of legacy/malformed rows with ancient or stray dates, producing
+     * sparse periods (counts of 1–5) years before the real data begins — these flatten the volume
+     * chart. Drop any period whose count is negligible relative to the busiest one. Data-driven, so
+     * it works across every table without hardcoding a cutoff date.
+     */
+    private List<Map<String, Object>> dropNegligiblePeriods(List<Map<String, Object>> rows) {
+        long peak = rows.stream().mapToLong(r -> ((Number) r.get("cnt")).longValue()).max().orElse(0);
+        if (peak == 0) {
+            return rows;
+        }
+        long floor = (long) Math.ceil(peak * PERIOD_VOLUME_FLOOR_RATIO);
+        List<Map<String, Object>> significant = rows.stream()
+                .filter(r -> ((Number) r.get("cnt")).longValue() >= floor)
+                .toList();
+        return significant.isEmpty() ? rows : significant;
     }
 
     private String resolveDateColumn(TableSchema schema, String requestedColumn) {

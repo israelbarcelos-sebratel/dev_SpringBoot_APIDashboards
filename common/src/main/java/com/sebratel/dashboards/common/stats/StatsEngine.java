@@ -1,6 +1,8 @@
 package com.sebratel.dashboards.common.stats;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -12,6 +14,13 @@ public final class StatsEngine {
 
     private StatsEngine() {
     }
+
+    /**
+     * Synthetic label the categorical engine assigns to SQL NULL / empty / whitespace-only values.
+     * Shared so the query layer can translate a filter on this label back into an {@code IS NULL}
+     * condition instead of matching the literal string.
+     */
+    public static final String EMPTY_LABEL = "(vazio)";
 
     // ---------------------------------------------------------------- descriptive
 
@@ -130,7 +139,7 @@ public final class StatsEngine {
 
     public static CategoricalStats categorical(List<String> rawValues) {
         List<String> values = rawValues.stream()
-                .map(v -> v == null || v.isBlank() ? "(vazio)" : v)
+                .map(v -> v == null || v.isBlank() ? EMPTY_LABEL : v)
                 .toList();
         long total = values.size();
 
@@ -152,7 +161,10 @@ public final class StatsEngine {
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                 .toList();
 
-        int topN = 20;
+        // Keep a generous slice: low-cardinality columns (servico, canal) stay well under this, while
+        // high-cardinality ones (duration columns like tmic/tmia) need many points so the wave chart
+        // has enough resolution on the X axis instead of collapsing most values into "(outros)".
+        int topN = 100;
         List<CategoricalStats.CategoryShare> distribution = sortedFreq.stream()
                 .limit(topN)
                 .map(e -> new CategoricalStats.CategoryShare(e.getKey(), e.getValue(), 100.0 * e.getValue() / total))
@@ -167,7 +179,42 @@ public final class StatsEngine {
                 .limit(10)
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new));
 
-        return new CategoricalStats(freq.size(), mode, entropy, topFrequencies, distribution);
+        CategoricalStats.DurationSummary durationSummary = durationSummary(values, total);
+
+        return new CategoricalStats(freq.size(), mode, entropy, topFrequencies, distribution, durationSummary);
+    }
+
+    private static final Pattern HMS = Pattern.compile("^(?:(\\d{1,2}):)?(\\d{1,2}):(\\d{2})$");
+
+    /** Total seconds of a "HH:MM:SS"/"MM:SS" string, or null if it isn't a duration. */
+    private static Long parseHms(String value) {
+        Matcher m = HMS.matcher(value.trim());
+        if (!m.matches()) {
+            return null;
+        }
+        long hours = m.group(1) != null ? Long.parseLong(m.group(1)) : 0;
+        return hours * 3600 + Long.parseLong(m.group(2)) * 60 + Long.parseLong(m.group(3));
+    }
+
+    /**
+     * If at least half the values parse as durations, aggregate them over ALL rows so the total
+     * time (e.g. total minutes waited in queue) is accurate — the top-N distribution alone would
+     * miss the long tail that lands in the "(outros)" bucket.
+     */
+    private static CategoricalStats.DurationSummary durationSummary(List<String> values, long total) {
+        long count = 0;
+        long totalSeconds = 0;
+        for (String v : values) {
+            Long seconds = parseHms(v);
+            if (seconds != null) {
+                count++;
+                totalSeconds += seconds;
+            }
+        }
+        if (count == 0 || count < total / 2) {
+            return null;
+        }
+        return new CategoricalStats.DurationSummary(totalSeconds, count, (double) totalSeconds / count);
     }
 
     // ---------------------------------------------------------------- time series
