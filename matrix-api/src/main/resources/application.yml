@@ -1,0 +1,23 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  datasource:
+    url: jdbc:mariadb://${DB_HOST:10.0.11.171}:${DB_PORT:3306}/${DB_NAME:API_WebDeveloper}
+    username: ${DB_USER:DevSebratel}
+    password: ${DB_PASSWORD:}
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+
+app:
+  db-schema: ${DB_NAME:API_WebDeveloper}
+  cors-allowed-origin: ${BFF_ORIGIN:http://localhost:4001}
+  group:
+    name: matrix
+    tables:
+      - db_matrix
+      - db_matrix_login
+      - db_matrix_avaliations
+      - db_matrix_stops
