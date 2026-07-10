@@ -1,6 +1,8 @@
 package com.sebratel.dashboards.common.web;
 
 import com.sebratel.dashboards.common.config.TableGroupProperties;
+import com.sebratel.dashboards.common.dto.BreakdownSeries;
+import com.sebratel.dashboards.common.dto.BreakdownTimeSeriesResponse;
 import com.sebratel.dashboards.common.dto.ColumnStats;
 import com.sebratel.dashboards.common.dto.CorrelationResponse;
 import com.sebratel.dashboards.common.dto.RowsPage;
@@ -11,17 +13,24 @@ import com.sebratel.dashboards.common.schema.ColumnType;
 import com.sebratel.dashboards.common.schema.SchemaIntrospector;
 import com.sebratel.dashboards.common.schema.TableSchema;
 import com.sebratel.dashboards.common.schema.UnknownTableException;
+import com.sebratel.dashboards.common.stats.CategoricalStats;
 import com.sebratel.dashboards.common.stats.CorrelationResult;
+import com.sebratel.dashboards.common.stats.DescriptiveStats;
 import com.sebratel.dashboards.common.stats.Insight;
 import com.sebratel.dashboards.common.stats.InsightGenerator;
 import com.sebratel.dashboards.common.stats.StatsEngine;
 import com.sebratel.dashboards.common.stats.TimeSeriesResult;
+import com.sebratel.dashboards.common.stats.WindowComparison;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,14 +72,14 @@ public class TableDataService {
     }
 
     public RowsPage getRows(String table, int page, int size, String sortColumn, String sortDir,
-                             Map<String, String> filters) {
+                             Map<String, String> filters, Integer months) {
         TableSchema schema = getSchema(table);
         Set<String> validColumns = columnNames(schema);
 
         String orderBy = validColumns.contains(sortColumn) ? sortColumn : schema.columns().get(0).name();
         String direction = "asc".equalsIgnoreCase(sortDir) ? "ASC" : "DESC";
 
-        Where filter = buildWhere(schema, filters);
+        Where filter = scopedWhere(table, schema, filters, months);
         String baseQuery = "FROM `" + table + "`" + filter.leading();
         long total = jdbcTemplate.queryForObject("SELECT COUNT(*) " + baseQuery, filter.params().toArray(), Long.class);
 
@@ -85,9 +94,9 @@ public class TableDataService {
         return new RowsPage(rows, total, page, size);
     }
 
-    public StatsResponse getStats(String table, Map<String, String> filters) {
+    public StatsResponse getStats(String table, Map<String, String> filters, Integer months) {
         TableSchema schema = getSchema(table);
-        Where filter = buildWhere(schema, filters);
+        Where filter = scopedWhere(table, schema, filters, months);
         List<ColumnStats> columnStats = new ArrayList<>();
         List<Insight> insights = new ArrayList<>();
 
@@ -120,23 +129,96 @@ public class TableDataService {
         return new StatsResponse(table, rowCount, columnStats, insights);
     }
 
+    /**
+     * Categorical distribution for a SINGLE column, scoped to the default/overridden time window.
+     * Cheaper than {@link #getStats} (which scans every column) — the semantic layer's "por-canal",
+     * "por-servico" etc. only ever need one column, so this avoids computing the whole table.
+     */
+    public CategoricalStats categoricalColumn(String table, String column, Map<String, String> filters,
+                                              Integer months) {
+        TableSchema schema = getSchema(table);
+        requireColumn(schema, column);
+        Where filter = scopedWhere(table, schema, filters, months);
+        List<String> values = jdbcTemplate.queryForList(
+                        "SELECT `" + column + "` FROM `" + table + "`" + filter.leading(),
+                        filter.params().toArray(), Object.class)
+                .stream().map(v -> v == null ? null : v.toString()).toList();
+        return StatsEngine.categorical(values);
+    }
+
+    /** Descriptive stats (histogram, quartiles, mean) for a SINGLE numeric/duration column, scoped. */
+    public DescriptiveStats numericColumn(String table, String column, Map<String, String> filters,
+                                          Integer months) {
+        TableSchema schema = getSchema(table);
+        requireColumn(schema, column);
+        Where filter = scopedWhere(table, schema, filters, months);
+        List<Double> values = jdbcTemplate.queryForList(
+                "SELECT `" + column + "` FROM `" + table + "` WHERE `" + column + "` IS NOT NULL"
+                        + filter.additional(),
+                filter.params().toArray(), Double.class);
+        return StatsEngine.descriptive(values);
+    }
+
+    /** Row count over the scoped window — backs the semantic "resumo" total. */
+    public long count(String table, Map<String, String> filters, Integer months) {
+        TableSchema schema = getSchema(table);
+        Where filter = scopedWhere(table, schema, filters, months);
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM `" + table + "`" + filter.leading(), filter.params().toArray(), Long.class);
+    }
+
+    /**
+     * The concrete calendar bounds of the current window, formatted {@code yyyy-MM-dd}, so the
+     * semantic envelope can label the period the user is actually seeing. Formatting happens in SQL
+     * to sidestep JDBC/timezone conversion. Null when the table has no date column.
+     */
+    public String[] windowBounds(String table, Integer months) {
+        TableSchema schema = getSchema(table);
+        String dateColumn = firstDateColumn(schema);
+        if (dateColumn == null) {
+            return null;
+        }
+        String col = "`" + dateColumn + "`";
+        String interval = (months != null && months > 0) ? "INTERVAL " + months + " MONTH" : DEFAULT_RANGE_INTERVAL;
+        Map<String, Object> r = jdbcTemplate.queryForMap(
+                "SELECT DATE_FORMAT(DATE_SUB(MAX(" + col + "), " + interval + "), '%Y-%m-%d') AS de, " +
+                        "DATE_FORMAT(MAX(" + col + "), '%Y-%m-%d') AS ate FROM `" + table + "`");
+        Object de = r.get("de");
+        Object ate = r.get("ate");
+        return (de == null || ate == null) ? null : new String[]{de.toString(), ate.toString()};
+    }
+
+    private void requireColumn(TableSchema schema, String column) {
+        if (column == null || !columnNames(schema).contains(column)) {
+            throw new IllegalArgumentException("Coluna desconhecida na tabela " + schema.tableName() + ": " + column);
+        }
+    }
+
+    private String firstDateColumn(TableSchema schema) {
+        return schema.columns().stream()
+                .filter(c -> c.type() == ColumnType.DATETIME)
+                .map(ColumnMetadata::name)
+                .findFirst()
+                .orElse(null);
+    }
+
     public TimeSeriesResponse getTimeSeries(String table, String requestedColumn, String granularity,
-                                             Map<String, String> filters) {
+                                             Map<String, String> filters, Integer months) {
         TableSchema schema = getSchema(table);
         String dateColumn = resolveDateColumn(schema, requestedColumn);
+        // The rolling-window variation (incl. YoY, which needs a full year of history) is always
+        // computed over the unscoped filter — only the bucketed series itself respects the requested
+        // time window, so narrowing the window never breaks the year-over-year comparison.
         Where filter = buildWhere(schema, filters);
-        String format = switch (granularity) {
-            case "day" -> "%Y-%m-%d";
-            case "week" -> "%x-W%v";
-            default -> "%Y-%m";
-        };
+        Where scoped = mergeWhere(filter, dateRangeFilter(table, schema, months));
+        String format = dateFormatFor(granularity);
 
         List<Object> params = new ArrayList<>();
         params.add(format);
-        params.addAll(filter.params());
+        params.addAll(scoped.params());
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT DATE_FORMAT(`" + dateColumn + "`, ?) AS period, COUNT(*) AS cnt " +
-                        "FROM `" + table + "` WHERE `" + dateColumn + "` IS NOT NULL " + filter.additional() +
+                        "FROM `" + table + "` WHERE `" + dateColumn + "` IS NOT NULL " + scoped.additional() +
                         " GROUP BY period ORDER BY period ASC",
                 params.toArray());
 
@@ -145,7 +227,8 @@ public class TableDataService {
         List<String> labels = rows.stream().map(r -> String.valueOf(r.get("period"))).toList();
         List<Long> counts = rows.stream().map(r -> ((Number) r.get("cnt")).longValue()).toList();
 
-        TimeSeriesResult series = StatsEngine.timeSeries(granularity, labels, counts);
+        WindowComparison windows = rollingWindows(table, dateColumn, filter, windowDaysFor(granularity));
+        TimeSeriesResult series = StatsEngine.timeSeries(granularity, labels, counts, windows);
         // The series counts rows per period, so the insight subject is the record volume — not the
         // raw date column, which read as "db_matrix.data_entrada" and confused what was measured.
         List<Insight> insights = InsightGenerator.fromTimeSeries("O volume de registros", series);
@@ -153,9 +236,89 @@ public class TableDataService {
         return new TimeSeriesResponse(table, dateColumn, series, insights);
     }
 
-    public CorrelationResponse getCorrelations(String table, Map<String, String> filters) {
+    /** DATE_FORMAT pattern that buckets a datetime into a day / ISO week / month label. */
+    private static String dateFormatFor(String granularity) {
+        return switch (granularity) {
+            case "day" -> "%Y-%m-%d";
+            case "week" -> "%x-W%v";
+            default -> "%Y-%m";
+        };
+    }
+
+    /**
+     * Time series split by a categorical column: per period (time on the X axis), the row count for
+     * each distinct value of {@code breakdownColumn}. Powers the satisfaction-over-time chart, where
+     * each vote is drawn as its own line. Rows with a null date or null category are excluded; the
+     * per-category counts are zero-filled so every line spans the whole X axis.
+     */
+    public BreakdownTimeSeriesResponse getTimeSeriesBreakdown(String table, String breakdownColumn,
+                                                              String granularity, Map<String, String> filters,
+                                                              Integer months) {
         TableSchema schema = getSchema(table);
-        Where filter = buildWhere(schema, filters);
+        String dateColumn = resolveDateColumn(schema, null);
+        if (breakdownColumn == null || !columnNames(schema).contains(breakdownColumn)) {
+            throw new IllegalArgumentException("Coluna de quebra desconhecida: " + breakdownColumn);
+        }
+        Where filter = scopedWhere(table, schema, filters, months);
+        String format = dateFormatFor(granularity);
+
+        List<Object> params = new ArrayList<>();
+        params.add(format);
+        params.addAll(filter.params());
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT DATE_FORMAT(`" + dateColumn + "`, ?) AS period, `" + breakdownColumn + "` AS cat, COUNT(*) AS cnt " +
+                        "FROM `" + table + "` WHERE `" + dateColumn + "` IS NOT NULL AND `" + breakdownColumn + "` IS NOT NULL " +
+                        filter.additional() + " GROUP BY period, cat ORDER BY period ASC",
+                params.toArray());
+
+        // Pivot the (period, cat, cnt) rows into a period axis + one count list per category.
+        LinkedHashSet<String> periodOrder = new LinkedHashSet<>();
+        Map<String, Map<String, Long>> byCategory = new LinkedHashMap<>();
+        Map<String, Long> periodTotals = new HashMap<>();
+        for (Map<String, Object> r : rows) {
+            String period = String.valueOf(r.get("period"));
+            String cat = String.valueOf(r.get("cat"));
+            long cnt = ((Number) r.get("cnt")).longValue();
+            periodOrder.add(period);
+            byCategory.computeIfAbsent(cat, k -> new HashMap<>()).put(period, cnt);
+            periodTotals.merge(period, cnt, Long::sum);
+        }
+
+        List<String> periods = dropNegligiblePeriodLabels(periodOrder, periodTotals);
+
+        // Order categories numerically when they all look like numbers (satisfaction 1..5), otherwise
+        // by total volume so the busiest line is listed first.
+        List<String> categories = new ArrayList<>(byCategory.keySet());
+        if (categories.stream().allMatch(TableDataService::isNumeric)) {
+            categories.sort(Comparator.comparingDouble(Double::parseDouble));
+        } else {
+            categories.sort(Comparator.comparingLong(
+                    (String c) -> byCategory.get(c).values().stream().mapToLong(Long::longValue).sum()).reversed());
+        }
+
+        List<BreakdownSeries> series = new ArrayList<>();
+        for (String cat : categories) {
+            Map<String, Long> perPeriod = byCategory.get(cat);
+            List<Long> counts = periods.stream().map(p -> perPeriod.getOrDefault(p, 0L)).toList();
+            series.add(new BreakdownSeries(cat, counts));
+        }
+
+        return new BreakdownTimeSeriesResponse(table, dateColumn, breakdownColumn, granularity, periods, series);
+    }
+
+    private static boolean isNumeric(String value) {
+        if (value == null || value.isBlank()) return false;
+        try {
+            Double.parseDouble(value.trim());
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    public CorrelationResponse getCorrelations(String table, Map<String, String> filters, Integer months) {
+        TableSchema schema = getSchema(table);
+        Where filter = scopedWhere(table, schema, filters, months);
         List<ColumnMetadata> numericColumns = schema.columns().stream()
                 .filter(c -> c.type() == ColumnType.NUMERIC || c.type() == ColumnType.INTEGER)
                 .toList();
@@ -188,16 +351,16 @@ public class TableDataService {
         return new CorrelationResponse(table, correlation, insights);
     }
 
-    public List<Insight> getInsights(String table, Map<String, String> filters) {
+    public List<Insight> getInsights(String table, Map<String, String> filters, Integer months) {
         List<Insight> insights = new ArrayList<>();
         TableSchema schema = getSchema(table);
 
         boolean hasDateColumn = schema.columns().stream().anyMatch(c -> c.type() == ColumnType.DATETIME);
         if (hasDateColumn) {
-            insights.addAll(getTimeSeries(table, null, "month", filters).insights());
+            insights.addAll(getTimeSeries(table, null, "month", filters, months).insights());
         }
-        insights.addAll(getStats(table, filters).insights());
-        insights.addAll(getCorrelations(table, filters).insights());
+        insights.addAll(getStats(table, filters, months).insights());
+        insights.addAll(getCorrelations(table, filters, months).insights());
         return insights;
     }
 
@@ -245,6 +408,104 @@ public class TableDataService {
         return new Where(conditions.toString(), params);
     }
 
+    /** Default fetch window when no {@code months} override is given: 6 weeks. */
+    private static final String DEFAULT_RANGE_INTERVAL = "INTERVAL 6 WEEK";
+
+    /** Equality filters combined with the default/overridden time-range bound on the table's date column. */
+    private Where scopedWhere(String table, TableSchema schema, Map<String, String> filters, Integer months) {
+        return mergeWhere(buildWhere(schema, filters), dateRangeFilter(table, schema, months));
+    }
+
+    /**
+     * Bounds a query to the last {@code months} months (or the last 6 weeks by default) of the
+     * table's date column, anchored to {@code MAX(dateColumn)} rather than the wall clock — same
+     * anchoring rationale as {@link #rollingWindows}: a table whose data lags "today" still returns
+     * its most recent slice instead of an empty result. Tables without a date column are returned
+     * unscoped, since there is nothing to bound.
+     */
+    private Where dateRangeFilter(String table, TableSchema schema, Integer months) {
+        String dateColumn = schema.columns().stream()
+                .filter(c -> c.type() == ColumnType.DATETIME)
+                .map(ColumnMetadata::name)
+                .findFirst()
+                .orElse(null);
+        if (dateColumn == null) {
+            return new Where("", List.of());
+        }
+        String col = "`" + dateColumn + "`";
+        // months is a server-validated positive integer (see TableController), so inlining it carries
+        // no injection risk — the same pattern rollingWindows uses for its own interval constants.
+        String interval = (months != null && months > 0) ? "INTERVAL " + months + " MONTH" : DEFAULT_RANGE_INTERVAL;
+        String condition = col + " > (SELECT DATE_SUB(MAX(" + col + "), " + interval + ") FROM `" + table + "`)";
+        return new Where(condition, List.of());
+    }
+
+    /** Combines two filters with AND, short-circuiting when either side is empty. */
+    private Where mergeWhere(Where a, Where b) {
+        if (a.isEmpty()) return b;
+        if (b.isEmpty()) return a;
+        List<Object> params = new ArrayList<>(a.params());
+        params.addAll(b.params());
+        return new Where(a.conditions() + " AND " + b.conditions(), params);
+    }
+
+    /** Rolling-window length (in days) for the variation, by chart granularity. */
+    private static int windowDaysFor(String granularity) {
+        return switch (granularity) {
+            case "day" -> 1;
+            case "week" -> 7;
+            default -> 30;
+        };
+    }
+
+    /**
+     * Computes the two equal-length rolling windows behind the variation: the last {@code windowDays}
+     * days vs the {@code windowDays} days before them, plus the last 365 days vs the 365 before them.
+     *
+     * <p>The windows are anchored to the most recent record ({@code MAX(dateColumn)}), not the wall
+     * clock: a table whose data lags "today" still compares its latest window against the previous
+     * one, and when the data is current (the usual case) the anchor is effectively today. Comparing
+     * equal-length windows is what fixes the old distortion of a partial month vs a full month.
+     *
+     * <p>The day counts (window, 2×window, 365, 730) are server-derived integers, never request
+     * input, so inlining them in the SQL carries no injection risk; only the filter values bind as
+     * parameters — once for the anchor subquery and once for the outer scan.
+     */
+    private WindowComparison rollingWindows(String table, String dateColumn, Where filter, int windowDays) {
+        String col = "`" + dateColumn + "`";
+        String tbl = "`" + table + "`";
+        String notNull = col + " IS NOT NULL";
+        String sql =
+                "SELECT " +
+                "SUM(" + col + " > DATE_SUB(a.anchor, INTERVAL " + windowDays + " DAY)) AS cur, " +
+                "SUM(" + col + " <= DATE_SUB(a.anchor, INTERVAL " + windowDays + " DAY) AND " +
+                        col + " > DATE_SUB(a.anchor, INTERVAL " + (2 * windowDays) + " DAY)) AS prev, " +
+                "SUM(" + col + " > DATE_SUB(a.anchor, INTERVAL 365 DAY)) AS cur_year, " +
+                "SUM(" + col + " <= DATE_SUB(a.anchor, INTERVAL 365 DAY) AND " +
+                        col + " > DATE_SUB(a.anchor, INTERVAL 730 DAY)) AS prev_year " +
+                "FROM " + tbl + " CROSS JOIN (SELECT MAX(" + col + ") AS anchor FROM " + tbl +
+                        " WHERE " + notNull + filter.additional() + ") a " +
+                "WHERE " + notNull + filter.additional();
+
+        List<Object> params = new ArrayList<>();
+        params.addAll(filter.params()); // anchor subquery
+        params.addAll(filter.params()); // outer scan
+        Map<String, Object> r = jdbcTemplate.queryForMap(sql, params.toArray());
+
+        long current = asLong(r.get("cur"));
+        long previous = asLong(r.get("prev"));
+        Long yoyCurrent = r.get("cur_year") == null ? null : asLong(r.get("cur_year"));
+        Long yoyPrevious = r.get("prev_year") == null ? null : asLong(r.get("prev_year"));
+        // Only surface a year-over-year comparison when the prior year actually has data to compare to.
+        boolean hasYoy = yoyPrevious != null && yoyPrevious > 0;
+        return new WindowComparison(current, previous, windowDays,
+                hasYoy ? yoyCurrent : null, hasYoy ? yoyPrevious : null);
+    }
+
+    private static long asLong(Object value) {
+        return value == null ? 0L : ((Number) value).longValue();
+    }
+
     /** Periods below this fraction of the busiest period are treated as noise and dropped. */
     private static final double PERIOD_VOLUME_FLOOR_RATIO = 0.01;
 
@@ -264,6 +525,23 @@ public class TableDataService {
                 .filter(r -> ((Number) r.get("cnt")).longValue() >= floor)
                 .toList();
         return significant.isEmpty() ? rows : significant;
+    }
+
+    /**
+     * Same negligible-period trimming as {@link #dropNegligiblePeriods}, but for the breakdown chart:
+     * drops periods whose TOTAL volume (across all categories) is below 1% of the busiest period, so
+     * the multi-line chart shares the same clean X axis as the volume chart. Preserves input order.
+     */
+    private List<String> dropNegligiblePeriodLabels(Collection<String> periodsInOrder, Map<String, Long> totals) {
+        long peak = totals.values().stream().mapToLong(Long::longValue).max().orElse(0);
+        if (peak == 0) {
+            return new ArrayList<>(periodsInOrder);
+        }
+        long floor = (long) Math.ceil(peak * PERIOD_VOLUME_FLOOR_RATIO);
+        List<String> kept = periodsInOrder.stream()
+                .filter(p -> totals.getOrDefault(p, 0L) >= floor)
+                .toList();
+        return kept.isEmpty() ? new ArrayList<>(periodsInOrder) : new ArrayList<>(kept);
     }
 
     private String resolveDateColumn(TableSchema schema, String requestedColumn) {

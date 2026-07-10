@@ -21,3 +21,43 @@ app:
       - db_native_avaliations
       - db_native_login
       - db_native_stops
+  # Semantic layer: same domains as matrix, but mapped to native's OWN columns (they differ).
+  domains:
+    atendimentos:
+      titulo: Atendimentos
+      descricao: Conversas e chamados recebidos pela operação.
+      tabela: db_native
+      unidade: atendimentos
+      dimensoes:
+        fila: fila
+        atendente: agente
+        sentido: sentido
+        cidade: cidade_cliente
+    satisfacao:
+      titulo: Satisfação
+      descricao: Avaliações da pesquisa de satisfação respondida pelos clientes.
+      tabela: db_native_avaliations
+      unidade: avaliações
+      notaColumn: nom_valor
+      dimensoes:
+        nota: nom_valor
+        pergunta: nom_pergunta
+        atendente: nom_agente
+    pausas:
+      titulo: Pausas
+      descricao: Pausas dos atendentes — motivo e frequência.
+      tabela: db_native_stops
+      unidade: pausas
+      dimensoes:
+        motivo: pausa
+        atendente: agente
+        fila: fila
+    jornada:
+      titulo: Jornada de trabalho
+      descricao: Sessões e eventos de presença dos atendentes.
+      tabela: db_native_login
+      unidade: eventos
+      dimensoes:
+        atendente: agente
+        evento: evento
+        status: status

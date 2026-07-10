@@ -219,8 +219,16 @@ public final class StatsEngine {
 
     // ---------------------------------------------------------------- time series
 
-    /** counts must already be ordered chronologically by the caller (grouped/aggregated in SQL). */
-    public static TimeSeriesResult timeSeries(String granularity, List<String> periodLabels, List<Long> counts) {
+    /**
+     * Builds the chart series (calendar-aligned points + moving average + trend) from {@code counts},
+     * while the period-over-period and year-over-year variation come from {@code windows} — two
+     * equal-length rolling windows. Keeping the two separate means a partial current calendar bucket
+     * no longer distorts the variation (the old bug: 6 days of the month vs a full previous month).
+     *
+     * <p>counts must already be ordered chronologically by the caller (grouped/aggregated in SQL).
+     */
+    public static TimeSeriesResult timeSeries(String granularity, List<String> periodLabels, List<Long> counts,
+                                              WindowComparison windows) {
         int n = counts.size();
         List<TimeSeriesPoint> points = new ArrayList<>(n);
         int window = 3;
@@ -236,13 +244,13 @@ public final class StatsEngine {
         }
 
         Double trendSlope = n >= 2 ? linearRegressionSlope(counts) : null;
-        Double periodOverPeriodChangePct = n >= 2 ? percentChange(counts.get(n - 2), counts.get(n - 1)) : null;
-        Double yearOverYearChangePct = null;
-        if ("month".equals(granularity) && n >= 13) {
-            yearOverYearChangePct = percentChange(counts.get(n - 13), counts.get(n - 1));
-        }
+        Double periodOverPeriodChangePct = percentChange(windows.previousCount(), windows.currentCount());
+        Double yearOverYearChangePct = windows.yoyCurrentCount() != null && windows.yoyPreviousCount() != null
+                ? percentChange(windows.yoyPreviousCount(), windows.yoyCurrentCount())
+                : null;
 
-        return new TimeSeriesResult(granularity, points, trendSlope, periodOverPeriodChangePct, yearOverYearChangePct);
+        return new TimeSeriesResult(granularity, points, trendSlope, periodOverPeriodChangePct, yearOverYearChangePct,
+                windows.currentCount(), windows.previousCount(), windows.windowDays());
     }
 
     private static Double percentChange(long previous, long current) {

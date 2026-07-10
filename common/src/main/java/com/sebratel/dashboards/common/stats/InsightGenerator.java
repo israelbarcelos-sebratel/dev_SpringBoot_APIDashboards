@@ -16,15 +16,15 @@ public final class InsightGenerator {
         if (series.periodOverPeriodChangePct() != null) {
             double pct = series.periodOverPeriodChangePct();
             String direction = pct >= 0 ? "cresceu" : "caiu";
-            String period = switch (series.granularity()) {
-                case "day" -> "no último dia";
-                case "week" -> "na última semana";
-                default -> "no último mês";
+            String comparison = switch (series.granularity()) {
+                case "day" -> "no último dia vs. o dia anterior";
+                case "week" -> "nos últimos 7 dias vs. os 7 dias anteriores";
+                default -> "nos últimos 30 dias vs. os 30 dias anteriores";
             };
             insights.add(new Insight(
                     "period_change",
                     Math.abs(pct) >= 20 ? "warning" : "info",
-                    String.format("%s %s %.1f%% %s em relação ao período anterior", metricLabel, direction, Math.abs(pct), period),
+                    String.format("%s %s %.1f%% %s", metricLabel, direction, Math.abs(pct), comparison),
                     pct,
                     null,
                     pct >= 0 ? Insight.POSITIVE : Insight.NEGATIVE
@@ -36,7 +36,7 @@ public final class InsightGenerator {
             String direction = pct >= 0 ? "cresceu" : "caiu";
             insights.add(Insight.info(
                     "yoy_change",
-                    String.format("%s %s %.1f%% comparado ao mesmo mês do ano anterior", metricLabel, direction, Math.abs(pct)),
+                    String.format("%s %s %.1f%% nos últimos 365 dias vs. os 365 dias anteriores", metricLabel, direction, Math.abs(pct)),
                     pct,
                     null,
                     pct >= 0 ? Insight.POSITIVE : Insight.NEGATIVE

@@ -1,5 +1,6 @@
 package com.sebratel.dashboards.common.web;
 
+import com.sebratel.dashboards.common.dto.BreakdownTimeSeriesResponse;
 import com.sebratel.dashboards.common.dto.CorrelationResponse;
 import com.sebratel.dashboards.common.dto.RowsPage;
 import com.sebratel.dashboards.common.dto.StatsResponse;
@@ -39,31 +40,50 @@ public class TableController {
                           @RequestParam(defaultValue = "25") int size,
                           @RequestParam(required = false) String sort,
                           @RequestParam(defaultValue = "desc") String dir,
+                          @RequestParam(required = false) Integer months,
                           @RequestParam Map<String, String> allParams) {
-        return tableDataService.getRows(table, page, size, sort, dir, filtersFrom(allParams));
+        return tableDataService.getRows(table, page, size, sort, dir, filtersFrom(allParams), months);
     }
 
     @GetMapping("/api/tables/{table}/stats")
-    public StatsResponse stats(@PathVariable String table, @RequestParam Map<String, String> allParams) {
-        return tableDataService.getStats(table, filtersFrom(allParams));
+    public StatsResponse stats(@PathVariable String table,
+                                @RequestParam(required = false) Integer months,
+                                @RequestParam Map<String, String> allParams) {
+        return tableDataService.getStats(table, filtersFrom(allParams), months);
     }
 
     @GetMapping("/api/tables/{table}/timeseries")
     public TimeSeriesResponse timeSeries(@PathVariable String table,
                                           @RequestParam(required = false) String column,
                                           @RequestParam(defaultValue = "month") String granularity,
+                                          @RequestParam(required = false) Integer months,
                                           @RequestParam Map<String, String> allParams) {
-        return tableDataService.getTimeSeries(table, column, granularity, filtersFrom(allParams));
+        return tableDataService.getTimeSeries(table, column, granularity, filtersFrom(allParams), months);
+    }
+
+    @GetMapping("/api/tables/{table}/timeseries/breakdown")
+    public BreakdownTimeSeriesResponse timeSeriesBreakdown(@PathVariable String table,
+                                                           @RequestParam String breakdown,
+                                                           @RequestParam(defaultValue = "month") String granularity,
+                                                           @RequestParam(required = false) Integer months,
+                                                           @RequestParam Map<String, String> allParams) {
+        Map<String, String> filters = filtersFrom(allParams);
+        filters.remove("breakdown");
+        return tableDataService.getTimeSeriesBreakdown(table, breakdown, granularity, filters, months);
     }
 
     @GetMapping("/api/tables/{table}/correlations")
-    public CorrelationResponse correlations(@PathVariable String table, @RequestParam Map<String, String> allParams) {
-        return tableDataService.getCorrelations(table, filtersFrom(allParams));
+    public CorrelationResponse correlations(@PathVariable String table,
+                                             @RequestParam(required = false) Integer months,
+                                             @RequestParam Map<String, String> allParams) {
+        return tableDataService.getCorrelations(table, filtersFrom(allParams), months);
     }
 
     @GetMapping("/api/tables/{table}/insights")
-    public List<Insight> insights(@PathVariable String table, @RequestParam Map<String, String> allParams) {
-        return tableDataService.getInsights(table, filtersFrom(allParams));
+    public List<Insight> insights(@PathVariable String table,
+                                   @RequestParam(required = false) Integer months,
+                                   @RequestParam Map<String, String> allParams) {
+        return tableDataService.getInsights(table, filtersFrom(allParams), months);
     }
 
     /** Strip pagination/sort/series knobs so only real column filters reach the query layer. */
@@ -75,6 +95,7 @@ public class TableController {
         filters.remove("dir");
         filters.remove("column");
         filters.remove("granularity");
+        filters.remove("months");
         return filters;
     }
 }

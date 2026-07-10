@@ -21,3 +21,45 @@ app:
       - db_matrix_login
       - db_matrix_avaliations
       - db_matrix_stops
+  # Semantic layer: maps each business domain to its data set and dimension columns.
+  # This is the only place internal column names live; routes/responses stay in business language.
+  domains:
+    atendimentos:
+      titulo: Atendimentos
+      descricao: Conversas e chamados recebidos pela operação.
+      tabela: db_matrix
+      unidade: atendimentos
+      dimensoes:
+        canal: canal
+        servico: servico
+        atendente: atendente
+        ativoReceptivo: ativo_receptivo
+        tempoFila: tempo_fila
+        tmic: tmic
+        tmia: tmia
+    satisfacao:
+      titulo: Satisfação
+      descricao: Avaliações da pesquisa de satisfação respondida pelos clientes.
+      tabela: db_matrix_avaliations
+      unidade: avaliações
+      notaColumn: nom_valor
+      dimensoes:
+        nota: nom_valor
+        pergunta: nom_pergunta
+    pausas:
+      titulo: Pausas
+      descricao: Pausas dos atendentes — motivo, duração e frequência.
+      tabela: db_matrix_stops
+      unidade: pausas
+      dimensoes:
+        motivo: pausa
+        atendente: agente
+        duracaoSegundos: seg_pausado
+    jornada:
+      titulo: Jornada de trabalho
+      descricao: Sessões de trabalho dos atendentes — login, logout e tempo conectado.
+      tabela: db_matrix_login
+      unidade: sessões
+      dimensoes:
+        atendente: agente
+        duracaoSegundos: seg_logado
