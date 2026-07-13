@@ -1,0 +1,39 @@
+# Stack para o Portainer — sobe as 2 APIs Java (matrix-api e native-api).
+#
+# IMPORTANTE: o Portainer (editor web) NÃO faz build. As imagens precisam já
+# existir no host Docker gerenciado pelo Portainer, ou num registry acessível.
+# Veja o passo a passo no README/instruções: build + (push OU load no host).
+#
+# As variáveis abaixo (${...}) são preenchidas na aba "Environment variables"
+# da stack no Portainer — NÃO comite senha aqui.
+
+services:
+  matrix-api:
+    image: ${MATRIX_IMAGE:-matrix-api:local}
+    container_name: matrix-api
+    ports:
+      - "8091:8091"
+    environment:
+      SERVER_PORT: "8091"
+      BFF_ORIGIN: "${MATRIX_BFF_ORIGIN:-http://localhost:4001}"
+      DB_HOST: "${DB_HOST}"
+      DB_PORT: "${DB_PORT:-3306}"
+      DB_NAME: "${DB_NAME}"
+      DB_USER: "${DB_USER}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+    restart: unless-stopped
+
+  native-api:
+    image: ${NATIVE_IMAGE:-native-api:local}
+    container_name: native-api
+    ports:
+      - "8092:8092"
+    environment:
+      SERVER_PORT: "8092"
+      BFF_ORIGIN: "${NATIVE_BFF_ORIGIN:-http://localhost:4002}"
+      DB_HOST: "${DB_HOST}"
+      DB_PORT: "${DB_PORT:-3306}"
+      DB_NAME: "${DB_NAME}"
+      DB_USER: "${DB_USER}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+    restart: unless-stopped
