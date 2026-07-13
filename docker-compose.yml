@@ -1,5 +1,5 @@
-# Sobe as APIs Java em portas não ortodoxas a partir de 8100.
-#   matrix-api -> 8100   |   native-api -> 8101
+# Sobe as APIs Java em portas não ortodoxas a partir de 8091.
+#   matrix-api -> 8091   |   native-api -> 8092
 #
 # Credenciais e host do banco vêm de um arquivo .env (NÃO versionado).
 # Copie o modelo antes de subir:
@@ -16,14 +16,14 @@ services:
       dockerfile: Dockerfile
       args:
         MODULE: matrix-api
-        PORT: "8100"
+        PORT: "8091"
     image: matrix-api:local
     container_name: matrix-api
     ports:
-      - "8100:8100"
+      - "8091:8091"
     env_file: .env
     environment:
-      SERVER_PORT: "8100"
+      SERVER_PORT: "8091"
       BFF_ORIGIN: "${MATRIX_BFF_ORIGIN:-http://localhost:4001}"
     restart: unless-stopped
 
@@ -33,13 +33,13 @@ services:
       dockerfile: Dockerfile
       args:
         MODULE: native-api
-        PORT: "8101"
+        PORT: "8092"
     image: native-api:local
     container_name: native-api
     ports:
-      - "8101:8101"
+      - "8092:8092"
     env_file: .env
     environment:
-      SERVER_PORT: "8101"
+      SERVER_PORT: "8092"
       BFF_ORIGIN: "${NATIVE_BFF_ORIGIN:-http://localhost:4002}"
     restart: unless-stopped
