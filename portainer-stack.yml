@@ -10,6 +10,7 @@
 services:
   matrix-api:
     image: ${MATRIX_IMAGE:-matrix-api:local}
+    pull_policy: never
     container_name: matrix-api
     ports:
       - "8091:8091"
@@ -25,6 +26,7 @@ services:
 
   native-api:
     image: ${NATIVE_IMAGE:-native-api:local}
+    pull_policy: never
     container_name: native-api
     ports:
       - "8092:8092"
