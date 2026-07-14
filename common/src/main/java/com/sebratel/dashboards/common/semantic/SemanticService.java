@@ -289,6 +289,7 @@ public class SemanticService {
             return "week";
         }
         return switch (por.toLowerCase()) {
+            case "hora" -> "hour";
             case "dia" -> "day";
             case "mes", "mês" -> "month";
             default -> "week";

@@ -17,6 +17,7 @@ public final class InsightGenerator {
             double pct = series.periodOverPeriodChangePct();
             String direction = pct >= 0 ? "cresceu" : "caiu";
             String comparison = switch (series.granularity()) {
+                case "hour" -> "na última hora vs. a hora anterior";
                 case "day" -> "no último dia vs. o dia anterior";
                 case "week" -> "nos últimos 7 dias vs. os 7 dias anteriores";
                 default -> "nos últimos 30 dias vs. os 30 dias anteriores";

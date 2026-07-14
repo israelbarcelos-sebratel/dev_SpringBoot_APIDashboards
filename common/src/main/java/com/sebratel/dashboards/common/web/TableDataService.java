@@ -239,6 +239,7 @@ public class TableDataService {
     /** DATE_FORMAT pattern that buckets a datetime into a day / ISO week / month label. */
     private static String dateFormatFor(String granularity) {
         return switch (granularity) {
+            case "hour" -> "%Y-%m-%dT%H:00:00";
             case "day" -> "%Y-%m-%d";
             case "week" -> "%x-W%v";
             default -> "%Y-%m";
@@ -452,6 +453,7 @@ public class TableDataService {
     /** Rolling-window length (in days) for the variation, by chart granularity. */
     private static int windowDaysFor(String granularity) {
         return switch (granularity) {
+            case "hour" -> 1;
             case "day" -> 1;
             case "week" -> 7;
             default -> 30;
