@@ -26,6 +26,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * Generic, schema-agnostic query layer shared by every dashboard service. All table/column
@@ -172,11 +174,17 @@ public class TableDataService {
      * semantic envelope can label the period the user is actually seeing. Formatting happens in SQL
      * to sidestep JDBC/timezone conversion. Null when the table has no date column.
      */
-    public String[] windowBounds(String table, Integer months) {
+    public String[] windowBounds(String table, Map<String, String> filters, Integer months) {
         TableSchema schema = getSchema(table);
         String dateColumn = firstDateColumn(schema);
         if (dateColumn == null) {
             return null;
+        }
+        String inicio = reservedValue(filters, "inicio");
+        String fim = reservedValue(filters, "fim");
+        if (inicio != null || fim != null) {
+            // An explicit inicio/fim override IS the period label — no need to ask the database.
+            return new String[]{inicio != null ? inicio : fim, fim != null ? fim : inicio};
         }
         String col = "`" + dateColumn + "`";
         String interval = (months != null && months > 0) ? "INTERVAL " + months + " MONTH" : DEFAULT_RANGE_INTERVAL;
@@ -210,7 +218,8 @@ public class TableDataService {
         // computed over the unscoped filter — only the bucketed series itself respects the requested
         // time window, so narrowing the window never breaks the year-over-year comparison.
         Where filter = buildWhere(schema, filters);
-        Where scoped = mergeWhere(filter, dateRangeFilter(table, schema, months));
+        Where scoped = mergeWhere(mergeWhere(filter, dateRangeFilter(table, schema, filters, months)),
+                hourOfDayFilter(schema, filters));
         String format = dateFormatFor(granularity);
 
         List<Object> params = new ArrayList<>();
@@ -386,6 +395,13 @@ public class TableDataService {
         }
     }
 
+    /**
+     * Query keys that control the time window/hour range rather than naming a real column — read
+     * directly by {@link #dateRangeFilter} / {@link #hourOfDayFilter}, so the generic equality loop
+     * below must never treat them as a column filter.
+     */
+    private static final Set<String> RESERVED_RANGE_KEYS = Set.of("inicio", "fim", "horaInicio", "horaFim");
+
     private Where buildWhere(TableSchema schema, Map<String, String> filters) {
         if (filters == null || filters.isEmpty()) {
             return new Where("", List.of());
@@ -394,17 +410,28 @@ public class TableDataService {
         StringBuilder conditions = new StringBuilder();
         List<Object> params = new ArrayList<>();
         for (Map.Entry<String, String> f : filters.entrySet()) {
+            if (RESERVED_RANGE_KEYS.contains(f.getKey())) continue;
             if (!validColumns.contains(f.getKey()) || f.getValue() == null || f.getValue().isBlank()) continue;
-            if (!conditions.isEmpty()) conditions.append(" AND ");
-            if (StatsEngine.EMPTY_LABEL.equals(f.getValue())) {
-                // The categorical engine buckets SQL NULL / empty / whitespace-only rows under the
-                // "(vazio)" label; selecting it must match those rows, not a literal "(vazio)" string.
-                conditions.append("(`").append(f.getKey()).append("` IS NULL OR TRIM(`")
-                        .append(f.getKey()).append("`) = '')");
-            } else {
-                conditions.append('`').append(f.getKey()).append("` = ?");
-                params.add(f.getValue());
+            // A comma-separated value (e.g. "FILA_A,FILA_B") selects any of several values — used by
+            // multi-select filters like fila/agente — while a single value keeps the plain equality.
+            List<String> values = Arrays.stream(f.getValue().split(","))
+                    .map(String::trim)
+                    .filter(v -> !v.isEmpty())
+                    .toList();
+            if (values.isEmpty()) continue;
+            List<String> clauses = new ArrayList<>();
+            for (String v : values) {
+                if (StatsEngine.EMPTY_LABEL.equals(v)) {
+                    // The categorical engine buckets SQL NULL / empty / whitespace-only rows under the
+                    // "(vazio)" label; selecting it must match those rows, not a literal "(vazio)" string.
+                    clauses.add("(`" + f.getKey() + "` IS NULL OR TRIM(`" + f.getKey() + "`) = '')");
+                } else {
+                    clauses.add("`" + f.getKey() + "` = ?");
+                    params.add(v);
+                }
             }
+            if (!conditions.isEmpty()) conditions.append(" AND ");
+            conditions.append(clauses.size() > 1 ? "(" + String.join(" OR ", clauses) + ")" : clauses.get(0));
         }
         return new Where(conditions.toString(), params);
     }
@@ -412,19 +439,33 @@ public class TableDataService {
     /** Default fetch window when no {@code months} override is given: 6 weeks. */
     private static final String DEFAULT_RANGE_INTERVAL = "INTERVAL 6 WEEK";
 
-    /** Equality filters combined with the default/overridden time-range bound on the table's date column. */
+    /**
+     * Equality filters combined with the default/overridden time-range bound and, when requested, an
+     * hour-of-day bound — the three knobs the "atendimentos" filter panel (Início/Fim, Filas/Agentes,
+     * Filtro por hora) needs.
+     */
     private Where scopedWhere(String table, TableSchema schema, Map<String, String> filters, Integer months) {
-        return mergeWhere(buildWhere(schema, filters), dateRangeFilter(table, schema, months));
+        Where scoped = mergeWhere(buildWhere(schema, filters), dateRangeFilter(table, schema, filters, months));
+        return mergeWhere(scoped, hourOfDayFilter(schema, filters));
+    }
+
+    private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
+
+    /** Reads a reserved control key (inicio/fim/horaInicio/horaFim) out of the filters map, if present. */
+    private static String reservedValue(Map<String, String> filters, String key) {
+        String v = filters == null ? null : filters.get(key);
+        return (v == null || v.isBlank()) ? null : v.trim();
     }
 
     /**
-     * Bounds a query to the last {@code months} months (or the last 6 weeks by default) of the
-     * table's date column, anchored to {@code MAX(dateColumn)} rather than the wall clock — same
-     * anchoring rationale as {@link #rollingWindows}: a table whose data lags "today" still returns
-     * its most recent slice instead of an empty result. Tables without a date column are returned
-     * unscoped, since there is nothing to bound.
+     * Bounds a query to an explicit {@code inicio}/{@code fim} (yyyy-MM-dd) range when given, or
+     * falls back to the last {@code months} months (or the last 6 weeks by default) of the table's
+     * date column, anchored to {@code MAX(dateColumn)} rather than the wall clock — same anchoring
+     * rationale as {@link #rollingWindows}: a table whose data lags "today" still returns its most
+     * recent slice instead of an empty result. Tables without a date column are returned unscoped,
+     * since there is nothing to bound.
      */
-    private Where dateRangeFilter(String table, TableSchema schema, Integer months) {
+    private Where dateRangeFilter(String table, TableSchema schema, Map<String, String> filters, Integer months) {
         String dateColumn = schema.columns().stream()
                 .filter(c -> c.type() == ColumnType.DATETIME)
                 .map(ColumnMetadata::name)
@@ -434,11 +475,73 @@ public class TableDataService {
             return new Where("", List.of());
         }
         String col = "`" + dateColumn + "`";
+
+        String inicio = reservedValue(filters, "inicio");
+        String fim = reservedValue(filters, "fim");
+        if (inicio != null || fim != null) {
+            StringBuilder conditions = new StringBuilder();
+            List<Object> params = new ArrayList<>();
+            if (inicio != null) {
+                if (!ISO_DATE.matcher(inicio).matches()) {
+                    throw new IllegalArgumentException("Data 'inicio' inválida (use yyyy-MM-dd): " + inicio);
+                }
+                conditions.append(col).append(" >= ?");
+                params.add(inicio);
+            }
+            if (fim != null) {
+                if (!ISO_DATE.matcher(fim).matches()) {
+                    throw new IllegalArgumentException("Data 'fim' inválida (use yyyy-MM-dd): " + fim);
+                }
+                if (!conditions.isEmpty()) conditions.append(" AND ");
+                // Exclusive upper bound one day later, so a date-only "fim" still includes that whole day.
+                conditions.append(col).append(" < DATE_ADD(?, INTERVAL 1 DAY)");
+                params.add(fim);
+            }
+            return new Where(conditions.toString(), params);
+        }
+
         // months is a server-validated positive integer (see TableController), so inlining it carries
         // no injection risk — the same pattern rollingWindows uses for its own interval constants.
         String interval = (months != null && months > 0) ? "INTERVAL " + months + " MONTH" : DEFAULT_RANGE_INTERVAL;
         String condition = col + " > (SELECT DATE_SUB(MAX(" + col + "), " + interval + ") FROM `" + table + "`)";
         return new Where(condition, List.of());
+    }
+
+    /**
+     * Restricts rows to an hour-of-day range ({@code horaInicio}..{@code horaFim}, 0-23, either end
+     * optional) — e.g. only the 08h-18h shift — independent of which calendar days are in range.
+     */
+    private Where hourOfDayFilter(TableSchema schema, Map<String, String> filters) {
+        String horaInicio = reservedValue(filters, "horaInicio");
+        String horaFim = reservedValue(filters, "horaFim");
+        if (horaInicio == null && horaFim == null) {
+            return new Where("", List.of());
+        }
+        String dateColumn = firstDateColumn(schema);
+        if (dateColumn == null) {
+            return new Where("", List.of());
+        }
+        int from = parseHour(horaInicio, 0);
+        int to = parseHour(horaFim, 23);
+        // from/to are validated 0-23 ints, not request text, so inlining them carries no injection risk.
+        String condition = "HOUR(`" + dateColumn + "`) BETWEEN " + from + " AND " + to;
+        return new Where(condition, List.of());
+    }
+
+    private static int parseHour(String raw, int fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        int h;
+        try {
+            h = Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Hora inválida (use 0-23): " + raw);
+        }
+        if (h < 0 || h > 23) {
+            throw new IllegalArgumentException("Hora fora do intervalo 0-23: " + raw);
+        }
+        return h;
     }
 
     /** Combines two filters with AND, short-circuiting when either side is empty. */

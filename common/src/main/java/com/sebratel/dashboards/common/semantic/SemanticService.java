@@ -77,7 +77,7 @@ public class SemanticService {
 
     public MetricResponse resumo(String dominio, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
-        Periodo periodo = periodo(d, meses);
+        Periodo periodo = periodo(d, filtros, meses);
         Map<String, Object> resumo = new LinkedHashMap<>();
         List<String> insights = new ArrayList<>();
 
@@ -132,7 +132,7 @@ public class SemanticService {
         return new MetricResponse(
                 "Volume · " + d.getTitulo(),
                 "Quantos " + d.getUnidade() + " por " + por + " ao longo do período.",
-                periodo(d, meses), Visualizacao.LINHA, d.getUnidade(),
+                periodo(d, filtros, meses), Visualizacao.LINHA, d.getUnidade(),
                 dados, resumo, mensagens(resp.insights()));
     }
 
@@ -160,7 +160,7 @@ public class SemanticService {
         return new MetricResponse(
                 "Evolução da satisfação · " + d.getTitulo(),
                 "Uma linha por nota (de Irritado a Encantado) ao longo do período.",
-                periodo(d, meses), Visualizacao.MULTILINHA, "avaliações",
+                periodo(d, filtros, meses), Visualizacao.MULTILINHA, "avaliações",
                 dados, Map.of(), List.of());
     }
 
@@ -195,7 +195,7 @@ public class SemanticService {
         return new MetricResponse(
                 "Por " + dimensao + " · " + d.getTitulo(),
                 "Distribuição de " + d.getUnidade() + " por " + dimensao + ".",
-                periodo(d, meses), viz, d.getUnidade(),
+                periodo(d, filtros, meses), viz, d.getUnidade(),
                 dados, resumo, List.of());
     }
 
@@ -227,7 +227,7 @@ public class SemanticService {
         return new MetricResponse(
                 "Distribuição de " + dimensao + " · " + d.getTitulo(),
                 "Como se distribui " + dimensao + " (em " + unidade + ") no período.",
-                periodo(d, meses), Visualizacao.HISTOGRAMA, unidade,
+                periodo(d, filtros, meses), Visualizacao.HISTOGRAMA, unidade,
                 dados, resumo, List.of());
     }
 
@@ -254,7 +254,7 @@ public class SemanticService {
         return new MetricResponse(
                 "Tempos · " + d.getTitulo(),
                 "Tempo médio de espera em fila e de resposta, em segundos.",
-                periodo(d, meses), Visualizacao.BARRA, "segundos",
+                periodo(d, filtros, meses), Visualizacao.BARRA, "segundos",
                 dados, Map.of(), List.of());
     }
 
@@ -276,11 +276,14 @@ public class SemanticService {
         return coluna;
     }
 
-    private Periodo periodo(Domain d, Integer meses) {
-        String[] bounds = data.windowBounds(d.getTabela(), meses);
-        String rotulo = (meses != null && meses > 0)
-                ? "últimos " + meses + (meses == 1 ? " mês" : " meses")
-                : "últimas 6 semanas";
+    private Periodo periodo(Domain d, Map<String, String> filtros, Integer meses) {
+        String[] bounds = data.windowBounds(d.getTabela(), filtros, meses);
+        boolean intervaloExplicito = filtros != null && (filtros.get("inicio") != null || filtros.get("fim") != null);
+        String rotulo = intervaloExplicito
+                ? "período selecionado"
+                : (meses != null && meses > 0)
+                        ? "últimos " + meses + (meses == 1 ? " mês" : " meses")
+                        : "últimas 6 semanas";
         return new Periodo(bounds == null ? null : bounds[0], bounds == null ? null : bounds[1], rotulo);
     }
 
