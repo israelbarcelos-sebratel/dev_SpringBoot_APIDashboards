@@ -51,6 +51,13 @@ public class SemanticDomainProperties {
         private String notaColumn;
         /** Semantic dimension name -> real column name (canal -> canal, motivo -> nom_motivo, …). */
         private Map<String, String> dimensoes = new LinkedHashMap<>();
+        /**
+         * Ordered chart label -> duration column for {@code /tempos} (queue wait, response time…).
+         * Kept apart from {@link #dimensoes} because these are "HH:MM:SS" duration columns aggregated
+         * into a mean, not categorical breakdowns — and the columns differ per service (matrix:
+         * tempo_fila/tmic/tmia; native: espera/atendimento).
+         */
+        private Map<String, String> tempos = new LinkedHashMap<>();
 
         public String getTitulo() {
             return titulo;
@@ -98,6 +105,14 @@ public class SemanticDomainProperties {
 
         public void setDimensoes(Map<String, String> dimensoes) {
             this.dimensoes = dimensoes;
+        }
+
+        public Map<String, String> getTempos() {
+            return tempos;
+        }
+
+        public void setTempos(Map<String, String> tempos) {
+            this.tempos = tempos;
         }
     }
 }

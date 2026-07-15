@@ -5,7 +5,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,7 +49,6 @@ public class AtendimentosController {
     @GetMapping("/atendimentos/tempos")
     public MetricResponse tempos(@RequestParam(required = false) Integer meses,
                                  @RequestParam Map<String, String> allParams) {
-        return semantic.tempos(DOMINIO, List.of("tempoFila", "tmic", "tmia"),
-                SemanticQuery.filtros(allParams), meses);
+        return semantic.tempos(DOMINIO, SemanticQuery.filtros(allParams), meses);
     }
 }

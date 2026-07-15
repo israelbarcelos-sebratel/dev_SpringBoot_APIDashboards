@@ -37,6 +37,11 @@ app:
         tempoFila: tempo_fila
         tmic: tmic
         tmia: tmia
+      # Colunas de duração ("HH:MM:SS") agregadas em média pelo endpoint /atendimentos/tempos.
+      tempos:
+        tempoFila: tempo_fila
+        tmic: tmic
+        tmia: tmia
     satisfacao:
       titulo: Satisfação
       descricao: Avaliações da pesquisa de satisfação respondida pelos clientes.

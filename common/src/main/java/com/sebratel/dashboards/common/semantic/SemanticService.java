@@ -231,20 +231,23 @@ public class SemanticService {
                 dados, resumo, List.of());
     }
 
-    /** Mean duration per configured time dimension (fila / TMIC / TMIA), in seconds. */
-    public MetricResponse tempos(String dominio, List<String> dimensoes, Map<String, String> filtros, Integer meses) {
+    /**
+     * Mean of each configured duration column (queue wait, response time…), in seconds. Which
+     * columns exist — and their chart labels — comes from {@code app.domains.<x>.tempos}, so matrix
+     * (tempo_fila/tmic/tmia) and native (espera/atendimento) each expose their own without any code
+     * change. Columns whose values don't look like durations are silently skipped.
+     */
+    public MetricResponse tempos(String dominio, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
         List<Map<String, Object>> categorias = new ArrayList<>();
-        for (String dim : dimensoes) {
-            String coluna = d.getDimensoes().get(dim);
-            if (coluna == null) {
-                continue;
-            }
+        for (Map.Entry<String, String> e : d.getTempos().entrySet()) {
+            String rotulo = e.getKey();
+            String coluna = e.getValue();
             CategoricalStats.DurationSummary dur = data.categoricalColumn(d.getTabela(), coluna, filtros, meses)
                     .durationSummary();
             if (dur != null) {
                 Map<String, Object> c = new LinkedHashMap<>();
-                c.put("rotulo", dim);
+                c.put("rotulo", rotulo);
                 c.put("segundosMedios", round(dur.meanSeconds()));
                 categorias.add(c);
             }

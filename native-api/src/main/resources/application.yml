@@ -33,6 +33,11 @@ app:
         atendente: agente
         sentido: sentido
         cidade: cidade_cliente
+      # Colunas de duração ("HH:MM:SS") agregadas em média pelo endpoint /atendimentos/tempos:
+      # 'espera' = tempo aguardando na fila, 'atendimento' = tempo de conversa com o agente.
+      tempos:
+        espera: espera
+        atendimento: atendimento
     satisfacao:
       titulo: Satisfação
       descricao: Avaliações da pesquisa de satisfação respondida pelos clientes.
