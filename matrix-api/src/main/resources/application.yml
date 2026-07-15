@@ -60,6 +60,9 @@ app:
         motivo: pausa
         atendente: agente
         duracaoSegundos: seg_pausado
+      # Histograma de /pausas/duracao: seg_pausado já é a duração em segundos inteiros.
+      duracao:
+        segundos: seg_pausado
     jornada:
       titulo: Jornada de trabalho
       descricao: Sessões de trabalho dos atendentes — login, logout e tempo conectado.
@@ -68,3 +71,6 @@ app:
       dimensoes:
         atendente: agente
         duracaoSegundos: seg_logado
+      # Histograma de /jornada/duracao: seg_logado já é o tempo conectado em segundos inteiros.
+      duracao:
+        segundos: seg_logado

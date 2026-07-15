@@ -161,6 +161,41 @@ public class TableDataService {
         return StatsEngine.descriptive(values);
     }
 
+    /**
+     * Descriptive stats (histogram, quartiles, mean) of a duration expressed in SECONDS, scoped to the
+     * window. Unlike {@link #numericColumn}, the seconds don't have to live in a numeric column: the
+     * {@link DurationSource} says whether to read a seconds column as-is, parse an {@code "HH:MM:SS"}
+     * varchar ({@code TIME_TO_SEC}) or compute the gap between two datetimes ({@code TIMESTAMPDIFF}),
+     * so matrix and native each feed their own representation into the same histogram. Every column the
+     * source names is validated against the schema and guarded {@code IS NOT NULL}; rows a conversion
+     * can't turn into seconds ({@code TIME_TO_SEC} of a malformed value yields NULL) are dropped
+     * downstream by {@link StatsEngine#descriptive}.
+     */
+    public DescriptiveStats durationColumn(String table, DurationSource source, Map<String, String> filters,
+                                           Integer months) {
+        TableSchema schema = getSchema(table);
+        List<String> cols = source.columns();
+        cols.forEach(c -> requireColumn(schema, c));
+        Where filter = scopedWhere(table, schema, filters, months);
+
+        String valueExpr = switch (source.kind()) {
+            case SECONDS -> "`" + source.column() + "`";
+            case HMS -> "TIME_TO_SEC(`" + source.column() + "`)";
+            case RANGE -> "TIMESTAMPDIFF(SECOND, `" + source.startColumn() + "`, `" + source.endColumn() + "`)";
+        };
+        String guard = cols.stream().map(c -> "`" + c + "` IS NOT NULL").reduce((a, b) -> a + " AND " + b).orElseThrow();
+        // A duration is non-negative by definition; drop the glitched rows the data actually carries
+        // (a stray "-00:00:14" pause, a session whose fim precedes its inicio) so they don't pull the
+        // histogram's minimum below zero. This also excludes rows a conversion couldn't parse, since a
+        // NULL value fails the comparison.
+        guard = guard + " AND (" + valueExpr + ") >= 0";
+
+        List<Double> values = jdbcTemplate.queryForList(
+                "SELECT " + valueExpr + " FROM `" + table + "` WHERE " + guard + filter.additional(),
+                filter.params().toArray(), Double.class);
+        return StatsEngine.descriptive(values);
+    }
+
     /** Row count over the scoped window — backs the semantic "resumo" total. */
     public long count(String table, Map<String, String> filters, Integer months) {
         TableSchema schema = getSchema(table);

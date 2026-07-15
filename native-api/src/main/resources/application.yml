@@ -57,6 +57,10 @@ app:
         motivo: pausa
         atendente: agente
         fila: fila
+      # /pausas/duracao: o native guarda a duração como varchar "HH:MM:SS" em tempo_em_pausa;
+      # 'hms' faz o TIME_TO_SEC no banco para o histograma sair em segundos.
+      duracao:
+        hms: tempo_em_pausa
     jornada:
       titulo: Jornada de trabalho
       descricao: Sessões e eventos de presença dos atendentes.
@@ -66,3 +70,8 @@ app:
         atendente: agente
         evento: evento
         status: status
+      # /jornada/duracao: o native não tem coluna de tempo logado; derivamos a duração da sessão
+      # do intervalo entre início e fim (TIMESTAMPDIFF em segundos). Sessões abertas (fim nulo) saem.
+      duracao:
+        inicio: data_hora_inicio
+        fim: data_hora_fim

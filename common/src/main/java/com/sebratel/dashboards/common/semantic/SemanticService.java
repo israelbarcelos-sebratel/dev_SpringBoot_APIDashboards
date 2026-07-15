@@ -10,6 +10,7 @@ import com.sebratel.dashboards.common.stats.CategoricalStats;
 import com.sebratel.dashboards.common.stats.Insight;
 import com.sebratel.dashboards.common.stats.TimeSeriesPoint;
 import com.sebratel.dashboards.common.stats.TimeSeriesResult;
+import com.sebratel.dashboards.common.web.DurationSource;
 import com.sebratel.dashboards.common.web.TableDataService;
 import org.springframework.stereotype.Service;
 
@@ -199,13 +200,30 @@ public class SemanticService {
                 dados, resumo, List.of());
     }
 
-    /** Histogram of a numeric dimension (e.g. seconds paused / logged in) over the scoped window. */
-    public MetricResponse duracao(String dominio, String dimensao, String unidade,
-                                  Map<String, String> filtros, Integer meses) {
+    /**
+     * Histogram of a duration (paused time, logged-in time…), in seconds, over the scoped window.
+     * Where those seconds come from is configured per domain in {@code app.domains.<x>.duracao} and
+     * differs per service — matrix reads a whole-seconds column, native pausas an "HH:MM:SS" varchar,
+     * native jornada the gap between login/logout — so each exposes the metric off its own data
+     * without any code change (see {@link SemanticDomainProperties.Duracao} / {@link DurationSource}).
+     * A domain with no {@code duracao} block returns an empty envelope rather than an error.
+     */
+    public MetricResponse duracao(String dominio, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
-        String coluna = requireDimensao(d, dimensao);
+        SemanticDomainProperties.Duracao cfg = d.getDuracao();
+        if (cfg == null) {
+            Map<String, Object> vazio = new LinkedHashMap<>();
+            vazio.put("bins", List.of());
+            return new MetricResponse(
+                    "Distribuição de duração · " + d.getTitulo(),
+                    "Este domínio não tem uma fonte de duração configurada.",
+                    periodo(d, filtros, meses), Visualizacao.HISTOGRAMA, "segundos",
+                    vazio, Map.of(), List.of());
+        }
+
+        DurationSource source = duracaoSource(dominio, cfg);
         com.sebratel.dashboards.common.stats.DescriptiveStats st =
-                data.numericColumn(d.getTabela(), coluna, filtros, meses);
+                data.durationColumn(d.getTabela(), source, filtros, meses);
 
         List<Map<String, Object>> bins = st.histogram().stream().map(b -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -224,11 +242,27 @@ public class SemanticService {
         resumo.put("minimo", round(st.min()));
         resumo.put("maximo", round(st.max()));
 
+        String unidade = cfg.getUnidade();
         return new MetricResponse(
-                "Distribuição de " + dimensao + " · " + d.getTitulo(),
-                "Como se distribui " + dimensao + " (em " + unidade + ") no período.",
+                "Distribuição de duração · " + d.getTitulo(),
+                "Como se distribui a duração (em " + unidade + ") no período.",
                 periodo(d, filtros, meses), Visualizacao.HISTOGRAMA, unidade,
                 dados, resumo, List.of());
+    }
+
+    /** Maps the declarative {@code duracao} config to a {@link DurationSource}; exactly one shape must be set. */
+    private static DurationSource duracaoSource(String dominio, SemanticDomainProperties.Duracao cfg) {
+        if (cfg.getSegundos() != null) {
+            return DurationSource.seconds(cfg.getSegundos());
+        }
+        if (cfg.getHms() != null) {
+            return DurationSource.hms(cfg.getHms());
+        }
+        if (cfg.getInicio() != null && cfg.getFim() != null) {
+            return DurationSource.range(cfg.getInicio(), cfg.getFim());
+        }
+        throw new IllegalStateException("Configuração 'duracao' inválida no domínio '" + dominio
+                + "': defina 'segundos', 'hms' ou o par 'inicio'/'fim'.");
     }
 
     /**
