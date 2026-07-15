@@ -46,6 +46,6 @@ public class JornadaController {
     @GetMapping("/jornada/duracao")
     public MetricResponse duracao(@RequestParam(required = false) Integer meses,
                                   @RequestParam Map<String, String> allParams) {
-        return semantic.duracao(DOMINIO, "duracaoSegundos", "segundos", SemanticQuery.filtros(allParams), meses);
+        return semantic.duracao(DOMINIO, SemanticQuery.filtros(allParams), meses);
     }
 }

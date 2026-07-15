@@ -58,6 +58,15 @@ public class SemanticDomainProperties {
          * tempo_fila/tmic/tmia; native: espera/atendimento).
          */
         private Map<String, String> tempos = new LinkedHashMap<>();
+        /**
+         * Where the {@code /duracao} histogram reads its duration from, or null when the domain
+         * doesn't expose that route. Kept apart from {@link #dimensoes} and {@link #tempos} because
+         * the underlying representation differs per service — matrix stores whole seconds
+         * ({@code segundos: seg_pausado}), native pausas an "HH:MM:SS" varchar ({@code hms:
+         * tempo_em_pausa}) and native jornada only start/end datetimes ({@code inicio:}/{@code fim:}) —
+         * yet all three yield the same seconds histogram. See {@link com.sebratel.dashboards.common.web.DurationSource}.
+         */
+        private Duracao duracao;
 
         public String getTitulo() {
             return titulo;
@@ -113,6 +122,68 @@ public class SemanticDomainProperties {
 
         public void setTempos(Map<String, String> tempos) {
             this.tempos = tempos;
+        }
+
+        public Duracao getDuracao() {
+            return duracao;
+        }
+
+        public void setDuracao(Duracao duracao) {
+            this.duracao = duracao;
+        }
+    }
+
+    /**
+     * Duration source for a domain's {@code /duracao} histogram. Exactly one representation is set:
+     * {@code segundos} (a whole-seconds column), {@code hms} (an "HH:MM:SS" varchar) or the
+     * {@code inicio}/{@code fim} pair (derive from two datetimes). {@code unidade} labels the axis
+     * (always seconds today, but kept configurable alongside the other domain metadata).
+     */
+    public static class Duracao {
+        private String segundos;
+        private String hms;
+        private String inicio;
+        private String fim;
+        private String unidade = "segundos";
+
+        public String getSegundos() {
+            return segundos;
+        }
+
+        public void setSegundos(String segundos) {
+            this.segundos = segundos;
+        }
+
+        public String getHms() {
+            return hms;
+        }
+
+        public void setHms(String hms) {
+            this.hms = hms;
+        }
+
+        public String getInicio() {
+            return inicio;
+        }
+
+        public void setInicio(String inicio) {
+            this.inicio = inicio;
+        }
+
+        public String getFim() {
+            return fim;
+        }
+
+        public void setFim(String fim) {
+            this.fim = fim;
+        }
+
+        public String getUnidade() {
+            return unidade;
+        }
+
+        public void setUnidade(String unidade) {
+            this.unidade = unidade;
         }
     }
 }
