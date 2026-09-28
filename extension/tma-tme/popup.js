@@ -133,6 +133,11 @@ $("mg-save").addEventListener("click", async () => {
   }
 });
 
+$("detalhe-btn").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("detalhes.html") });
+  window.close();
+});
+
 $("show-btn").addEventListener("click", async () => {
   // Só fecha depois de gravar: fechar o popup antes interrompe o get/set e o widget nunca reaparece.
   const r = await chrome.storage.local.get(["sebratelWidgetState"]);

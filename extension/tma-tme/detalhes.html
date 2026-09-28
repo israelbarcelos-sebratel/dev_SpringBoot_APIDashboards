@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atendimentos de hoje · TMA/TME Sebratel</title>
+  <link rel="icon" type="image/png" href="icons/icon32.png" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" />
+  <style>
+    /* Design system Sebratel — tokens do DHO (dho/frontend/src/styles/variables.css). Tema claro único. */
+    :root {
+      color-scheme: light;
+      --primary-color: #ffb000;
+      --primary-hover: #e09e00;
+      --primary-contrast: #111111;
+      --primary-soft: #fff3d6;
+      --bg-color: #f5f1e8;
+      --card-bg: #ffffff;
+      --surface-2: #faf7ef;
+      --text-color: #2a2a28;
+      --text-primary: #111111;
+      --text-secondary: #5e5b50;
+      --border-color: #e0dacb;
+      --border-subtle: #ede8db;
+      --success-text: #0f7a37;
+      --warning-text: #b45309;
+      --warning-bg: #fff4d6;
+      --warning-strong: #8a5a00;
+      --error-color: #dc2626;
+      --error-subtle-bg: #fce9e9;
+      --no-data: #b7b2a4;
+      --bg-hover: #efeadd;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 2px rgba(40, 33, 20, 0.06), 0 1px 3px rgba(40, 33, 20, 0.1);
+      --focus-ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 55%, transparent);
+      --overlay-primary-hover: color-mix(in srgb, var(--primary-color) 12%, transparent);
+      --ease: cubic-bezier(0.2, 0, 0, 1);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      color: var(--text-color);
+      background: var(--bg-color);
+      -webkit-font-smoothing: antialiased;
+    }
+    .masthead {
+      background: var(--primary-color);
+      color: var(--primary-contrast);
+      padding: 16px 24px;
+      font-size: 15px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .masthead img { width: 24px; height: 24px; }
+    .masthead b { font-weight: 700; letter-spacing: 0.01em; }
+    .masthead span { opacity: 0.72; }
+    main { max-width: 1400px; margin: 0 auto; padding: 20px 16px 40px; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+    }
+    h1 { font-size: 20px; color: var(--text-primary); margin: 0 0 4px; }
+    .muted { color: var(--text-secondary); font-size: 13px; }
+    .topbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    input[type="search"] {
+      min-width: 240px;
+      padding: 9px 12px;
+      font: inherit; font-size: 14px;
+      color: var(--text-color);
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: border-color 200ms var(--ease), box-shadow 200ms var(--ease);
+    }
+    input[type="search"]:focus { border-color: var(--primary-color); box-shadow: var(--focus-ring); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 9px 16px;
+      font: inherit; font-size: 14px; font-weight: 500;
+      border: none; border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background-color 200ms var(--ease), box-shadow 200ms var(--ease);
+    }
+    .btn:focus-visible { box-shadow: var(--focus-ring); outline: none; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-primary { background: var(--primary-color); color: var(--primary-contrast); }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); box-shadow: var(--shadow-sm); }
+    .btn-secondary { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); }
+    .btn-secondary:hover:not(:disabled) { background: var(--overlay-primary-hover); }
+
+    .section-marker {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 16px; font-weight: 700; color: var(--text-primary);
+      margin: 0 0 4px;
+    }
+    .section-marker::before {
+      content: ""; width: 4px; height: 16px; border-radius: 2px; background: var(--primary-color);
+    }
+    .section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 14px; }
+
+    .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .kpi { background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px 14px; }
+    .kpi-label { font-size: 12px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.04em; }
+    .kpi-value { font-size: 24px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+    .kpi-formula { font-size: 12.5px; color: var(--text-color); line-height: 1.4; }
+    .kpi-n { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+
+    .ok { color: var(--success-text); }
+    .warn { color: var(--warning-text); }
+    .bad { color: var(--error-color); }
+    .empty { color: var(--no-data); }
+
+    .table-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+    th {
+      position: sticky; top: 0; z-index: 1;
+      background: var(--surface-2);
+      font-size: 12px; font-weight: 700; color: var(--text-secondary);
+      cursor: pointer; user-select: none;
+    }
+    th:hover { color: var(--text-primary); }
+    th[aria-sort="ascending"]::after { content: " ▲"; font-size: 9px; }
+    th[aria-sort="descending"]::after { content: " ▼"; font-size: 9px; }
+    th.metric, td.metric { text-align: right; font-variant-numeric: tabular-nums; }
+    th.metric { background: var(--primary-soft); color: var(--warning-strong); }
+    td.metric { font-weight: 600; color: var(--text-primary); }
+    td.metric.ok { color: var(--success-text); }
+    td.metric.warn { color: var(--warning-text); }
+    td.metric.bad { color: var(--error-color); }
+    td.metric.empty { color: var(--no-data); font-weight: 400; }
+    tbody tr:hover { background: var(--bg-hover); }
+    td.cliente { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    tfoot td { background: var(--surface-2); font-weight: 700; color: var(--text-primary); position: sticky; bottom: 0; }
+
+    .notice { padding: 10px 12px; border-radius: var(--radius-md); background: var(--warning-bg); color: var(--warning-strong); font-size: 13px; margin-bottom: 12px; }
+    .error { padding: 10px 12px; border-radius: var(--radius-md); background: var(--error-subtle-bg); color: var(--error-color); font-size: 13px; }
+    .legend { font-size: 12.5px; color: var(--text-secondary); margin: 10px 0 0; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="masthead"><img src="icons/icon32.png" alt="" /><div><b>Sebratel</b><span> · TMA/TME</span></div></div>
+
+  <main>
+    <div class="card">
+      <div class="topbar">
+        <div>
+          <h1>Atendimentos de hoje</h1>
+          <div class="muted" id="quem">Carregando…</div>
+        </div>
+        <div class="actions">
+          <input type="search" id="busca" placeholder="Filtrar por protocolo, cliente, fila…" />
+          <button class="btn btn-secondary" id="csv-btn">Exportar CSV</button>
+          <button class="btn btn-primary" id="atualizar-btn">Atualizar</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="secoes"></div>
+  </main>
+
+  <script src="api.js"></script>
+  <script src="detalhes.js"></script>
+</body>
+</html>

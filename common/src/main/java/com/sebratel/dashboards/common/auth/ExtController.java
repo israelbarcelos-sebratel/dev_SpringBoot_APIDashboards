@@ -4,6 +4,7 @@ import com.sebratel.dashboards.common.auth.UsuarioRepository.Usuario;
 import com.sebratel.dashboards.common.cache.TemposAtendenteCache;
 import com.sebratel.dashboards.common.cache.TemposHojeJob;
 import com.sebratel.dashboards.common.config.TableGroupProperties;
+import com.sebratel.dashboards.common.config.WidgetProperties;
 import com.sebratel.dashboards.common.semantic.MetricResponse;
 import com.sebratel.dashboards.common.semantic.SemanticService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -38,16 +40,18 @@ public class ExtController {
     private final TableGroupProperties groupProperties;
     private final TemposHojeJob temposHoje;
     private final SuporteService suporte;
+    private final WidgetProperties widgetProperties;
 
     public ExtController(UsuarioRepository usuarios, SemanticService semantic,
                          TemposAtendenteCache temposCache, TableGroupProperties groupProperties,
-                         TemposHojeJob temposHoje, SuporteService suporte) {
+                         TemposHojeJob temposHoje, SuporteService suporte, WidgetProperties widgetProperties) {
         this.usuarios = usuarios;
         this.semantic = semantic;
         this.temposCache = temposCache;
         this.groupProperties = groupProperties;
         this.temposHoje = temposHoje;
         this.suporte = suporte;
+        this.widgetProperties = widgetProperties;
     }
 
     @GetMapping("/ext/me")
@@ -94,6 +98,47 @@ public class ExtController {
         resp.put("hoje", temposHoje.somar(hoje, nomes));
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hoje.calculadoEm());
+        return resp;
+    }
+
+    /**
+     * The per-call table behind the widget's numbers ("como o meu TMA foi formado"): today's calls of
+     * the same atendente(s) {@link #widget} resolves — same visibility rule — with the configured
+     * columns and each metric per call, plus every metric's formula and today's average, so the table
+     * adds up to what the widget shows.
+     */
+    @GetMapping("/ext/widget/detalhe")
+    public Map<String, Object> detalhe(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
+                                       @RequestParam(required = false) String atendente) {
+        Usuario u = usuarios.find(email);
+        List<String> nomes = resolverAlvo(u, atendente);
+        TemposHojeJob.Snapshot hoje = temposHoje.hoje();
+        Map<String, TemposHojeJob.Tempo> medias = temposHoje.somar(hoje, nomes);
+
+        List<Map<String, Object>> metricas = new ArrayList<>();
+        widgetProperties.getTempos().forEach((chave, m) -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("chave", chave);
+            item.put("formula", m.getFormula());
+            TemposHojeJob.Tempo t = medias.get(chave);
+            item.put("segundosMedios", t == null ? null : t.segundosMedios());
+            item.put("amostras", t == null ? 0 : t.amostras());
+            metricas.add(item);
+        });
+        List<Map<String, String>> colunas = widgetProperties.getDetalhe().stream()
+                .map(c -> Map.of("chave", c.getChave(), "rotulo", c.getRotulo()))
+                .toList();
+        List<Map<String, Object>> linhas = temposHoje.detalheHoje(nomes);
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("sistema", groupProperties.groupName());
+        resp.put("atendente", nomes.get(0));
+        resp.put("nomes", nomes);
+        resp.put("metricas", metricas);
+        resp.put("colunas", colunas);
+        resp.put("linhas", linhas);
+        resp.put("truncado", linhas.size() >= widgetProperties.getDetalheLimite());
+        resp.put("ultimoRegistro", hoje.ultimoRegistro());
         return resp;
     }
 

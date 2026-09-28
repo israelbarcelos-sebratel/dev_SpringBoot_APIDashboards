@@ -10,6 +10,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -79,6 +81,57 @@ public class TemposHojeJob {
         return resultado;
     }
 
+    /**
+     * Today's calls of the given atendente names, newest first, for the per-call table: the configured
+     * {@code app.widget.detalhe} columns plus each metric in seconds as computed by the same expression
+     * the averages use (null when missing or negative — those rows don't count in the average). Read
+     * straight from the source on demand (someone opened the table), capped at
+     * {@code app.widget.detalhe-limite} rows.
+     */
+    public List<Map<String, Object>> detalheHoje(List<String> nomes) {
+        Domain d = props.domain(DOMINIO);
+        String atendenteCol = d == null ? null : d.getDimensoes().get(DIMENSAO_ATENDENTE);
+        String dataCol = widget.getDataColuna();
+        if (d == null || atendenteCol == null || dataCol == null || dataCol.isBlank() || nomes.isEmpty()) {
+            return List.of();
+        }
+        List<WidgetProperties.Coluna> colunas = widget.getDetalhe();
+        List<String> metricas = List.copyOf(widget.getTempos().keySet());
+        StringBuilder sql = new StringBuilder("SELECT CAST(`").append(atendenteCol).append("` AS CHAR) AS atendente");
+        for (int i = 0; i < colunas.size(); i++) {
+            sql.append(", CAST(`").append(colunas.get(i).getColuna()).append("` AS CHAR) AS c").append(i);
+        }
+        for (int i = 0; i < metricas.size(); i++) {
+            String expr = widget.getTempos().get(metricas.get(i)).expressaoSegundos();
+            sql.append(", CASE WHEN ").append(expr).append(" >= 0 THEN ").append(expr).append(" END AS m").append(i);
+        }
+        sql.append(" FROM `").append(d.getTabela()).append("` WHERE ").append(janelaHoje(dataCol))
+           .append(" AND `").append(atendenteCol).append("` IN (")
+           .append(String.join(",", Collections.nCopies(nomes.size(), "?"))).append(")")
+           .append(" ORDER BY `").append(dataCol).append("` DESC LIMIT ").append(Math.max(1, widget.getDetalheLimite()));
+
+        List<Map<String, Object>> linhas = new ArrayList<>();
+        jdbcTemplate.query(sql.toString(), rs -> {
+            Map<String, Object> linha = new LinkedHashMap<>();
+            linha.put("atendente", rs.getString("atendente"));
+            for (int i = 0; i < colunas.size(); i++) {
+                linha.put(colunas.get(i).getChave(), rs.getString("c" + i));
+            }
+            Map<String, Object> tempos = new LinkedHashMap<>();
+            for (int i = 0; i < metricas.size(); i++) {
+                long v = rs.getLong("m" + i);
+                tempos.put(metricas.get(i), rs.wasNull() ? null : v);
+            }
+            linha.put("tempos", tempos);
+            linhas.add(linha);
+        }, nomes.toArray());
+        return linhas;
+    }
+
+    private static String janelaHoje(String dataCol) {
+        return "`" + dataCol + "` >= DATE_FORMAT(CURDATE(), '%Y-%m-%d')";
+    }
+
     @Scheduled(initialDelay = 3_000, fixedRate = 60_000)
     public void refreshHoje() {
         Snapshot s = calcularHoje();
@@ -96,7 +149,7 @@ public class TemposHojeJob {
             return null;
         }
         String tabela = d.getTabela();
-        String janela = "`" + dataCol + "` >= DATE_FORMAT(CURDATE(), '%Y-%m-%d')";
+        String janela = janelaHoje(dataCol);
 
         List<String> metricas = List.copyOf(widget.getTempos().keySet());
         StringBuilder sql = new StringBuilder("SELECT `").append(atendenteCol).append("` AS atendente");

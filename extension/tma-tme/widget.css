@@ -39,7 +39,14 @@
   user-select: none;
   text-align: left;
   -webkit-font-smoothing: antialiased;
+  /* Translúcido para não esconder a página; opaco com o mouse em cima ou quando fixado (pino). */
+  opacity: 0.55;
   transition: opacity 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+#sebratel-tma-widget:hover,
+#sebratel-tma-widget.pinned {
+  opacity: 1;
 }
 
 #sebratel-tma-widget * {
@@ -48,6 +55,12 @@
 
 #sebratel-tma-widget.dragging {
   opacity: 0.88;
+}
+
+#sebratel-tma-widget .header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 /* Masthead âmbar, como nos e-mails e no DHO: "Sebratel · TMA/TME". */
@@ -83,21 +96,39 @@
   opacity: 0.8;
 }
 
-#sebratel-tma-widget .close-btn {
+#sebratel-tma-widget .hbtn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  width: 20px;
-  height: 20px;
-  line-height: 20px;
-  text-align: center;
+  width: 22px;
+  height: 22px;
   border-radius: 6px;
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 1;
   color: var(--stw-primary-contrast);
   opacity: 0.7;
   transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms;
 }
-#sebratel-tma-widget .close-btn:hover {
+#sebratel-tma-widget .hbtn:hover {
   opacity: 1;
   background: rgba(17, 17, 17, 0.1);
+}
+#sebratel-tma-widget .hbtn:focus-visible {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--stw-primary-contrast);
+}
+#sebratel-tma-widget .hbtn svg {
+  display: block;
+}
+/* Pino ativo: preenchido e com fundo, para ficar claro que está travado opaco. */
+#sebratel-tma-widget.pinned .pin-btn {
+  opacity: 1;
+  background: rgba(17, 17, 17, 0.14);
+}
+#sebratel-tma-widget.pinned .pin-btn svg {
+  fill: currentColor;
 }
 
 #sebratel-tma-widget .body {

@@ -42,8 +42,18 @@ app:
     tempos:
       tma:
         hms: atendimento
+        formula: Duração da conversa com o atendente (coluna atendimento da Native)
       tme:
         hms: espera
+        formula: Tempo aguardando na fila até ser atendido (coluna espera da Native)
+    # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem telefone/gravação de propósito.
+    detalhe:
+      - { chave: dataHora, rotulo: Data/hora, coluna: data_hora }
+      - { chave: protocolo, rotulo: Protocolo, coluna: protocolo }
+      - { chave: cliente, rotulo: Cliente, coluna: nome_cliente }
+      - { chave: fila, rotulo: Fila, coluna: fila }
+      - { chave: sentido, rotulo: Sentido, coluna: sentido }
+      - { chave: desconexao, rotulo: Desconexão, coluna: desconexao }
   group:
     name: native
     tables:
