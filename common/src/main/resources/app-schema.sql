@@ -26,6 +26,18 @@ CREATE TABLE IF NOT EXISTS usuarios_extensao (
     PRIMARY KEY (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Pseudônimos dos clientes (ver ClienteAlias): a tabela de atendimentos da extensão só mostra o
+-- alias; a relação alias -> nome fica só aqui. nome_hash = SHA-256 do nome normalizado (mesmo
+-- cliente, mesmo alias, nos dois sistemas).
+CREATE TABLE IF NOT EXISTS cliente_alias (
+    nome_hash CHAR(64)     NOT NULL,
+    alias     VARCHAR(16)  NOT NULL,
+    nome      VARCHAR(300) NOT NULL,
+    criado_em DATETIME     NOT NULL,
+    PRIMARY KEY (nome_hash),
+    UNIQUE KEY uk_cliente_alias (alias)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Bancos criados antes do vínculo automático: atendente era obrigatório e escolhido pelo próprio
 -- usuário. Essas linhas antigas ficam com manual = 0 (o atendente escolhido deixa de valer).
 ALTER TABLE usuarios_extensao MODIFY atendente VARCHAR(255) NULL;

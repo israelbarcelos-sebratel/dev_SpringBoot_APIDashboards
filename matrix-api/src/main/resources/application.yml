@@ -58,10 +58,11 @@ app:
       tmia:
         hms: tmia
         formula: Tempo médio de interação do atendente (calculado pela Matrix)
-    # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem CPF/telefone de propósito.
+    # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem CPF/telefone de propósito; o cliente
+    # sai só como alias (ClienteAlias — a relação alias -> nome fica na tabela cliente_alias do app-db).
     detalhe:
       - { chave: protocolo, rotulo: Protocolo, coluna: protocolo }
-      - { chave: cliente, rotulo: Cliente, coluna: contato }
+      - { chave: cliente, rotulo: Cliente (alias), coluna: contato, alias: true }
       - { chave: canal, rotulo: Canal, coluna: canal }
       - { chave: servico, rotulo: Serviço, coluna: servico }
       - { chave: entrada, rotulo: Entrada, coluna: data_entrada }

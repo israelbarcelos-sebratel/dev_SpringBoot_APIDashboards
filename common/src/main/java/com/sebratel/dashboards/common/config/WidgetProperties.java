@@ -23,6 +23,7 @@ import java.util.Map;
  *       tme: { hms: espera }                                       # "HH:MM:SS" varchar
  *     detalhe:                            # columns of the per-call table (/ext/widget/detalhe)
  *       - { chave: protocolo, rotulo: Protocolo, coluna: protocolo }
+ *       - { chave: cliente, rotulo: Cliente, coluna: contato, alias: true }  # pseudonymized
  * </pre>
  */
 @Component
@@ -66,11 +67,23 @@ public class WidgetProperties {
         this.detalheLimite = detalheLimite;
     }
 
-    /** One column of the per-call table: {@code chave} in the JSON, {@code rotulo} in the UI. */
+    /**
+     * One column of the per-call table: {@code chave} in the JSON, {@code rotulo} in the UI.
+     * {@code alias: true} replaces the value with its {@code ClienteAlias} pseudonym (customer names).
+     */
     public static class Coluna {
         private String chave;
         private String rotulo;
         private String coluna;
+        private boolean alias;
+
+        public boolean isAlias() {
+            return alias;
+        }
+
+        public void setAlias(boolean alias) {
+            this.alias = alias;
+        }
 
         public String getChave() {
             return chave;

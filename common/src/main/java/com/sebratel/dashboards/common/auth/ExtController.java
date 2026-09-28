@@ -1,6 +1,7 @@
 package com.sebratel.dashboards.common.auth;
 
 import com.sebratel.dashboards.common.auth.UsuarioRepository.Usuario;
+import com.sebratel.dashboards.common.cache.ClienteAlias;
 import com.sebratel.dashboards.common.cache.TemposAtendenteCache;
 import com.sebratel.dashboards.common.cache.TemposHojeJob;
 import com.sebratel.dashboards.common.config.TableGroupProperties;
@@ -21,6 +22,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * API of the TMA/TME Chrome extension. Every route is behind {@link ExtAuthInterceptor}, so the
@@ -41,10 +44,12 @@ public class ExtController {
     private final TemposHojeJob temposHoje;
     private final SuporteService suporte;
     private final WidgetProperties widgetProperties;
+    private final ClienteAlias clienteAlias;
 
     public ExtController(UsuarioRepository usuarios, SemanticService semantic,
                          TemposAtendenteCache temposCache, TableGroupProperties groupProperties,
-                         TemposHojeJob temposHoje, SuporteService suporte, WidgetProperties widgetProperties) {
+                         TemposHojeJob temposHoje, SuporteService suporte, WidgetProperties widgetProperties,
+                         ClienteAlias clienteAlias) {
         this.usuarios = usuarios;
         this.semantic = semantic;
         this.temposCache = temposCache;
@@ -52,6 +57,7 @@ public class ExtController {
         this.temposHoje = temposHoje;
         this.suporte = suporte;
         this.widgetProperties = widgetProperties;
+        this.clienteAlias = clienteAlias;
     }
 
     @GetMapping("/ext/me")
@@ -129,6 +135,7 @@ public class ExtController {
                 .map(c -> Map.of("chave", c.getChave(), "rotulo", c.getRotulo()))
                 .toList();
         List<Map<String, Object>> linhas = temposHoje.detalheHoje(nomes);
+        pseudonimizar(linhas);
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("sistema", groupProperties.groupName());
@@ -140,6 +147,32 @@ public class ExtController {
         resp.put("truncado", linhas.size() >= widgetProperties.getDetalheLimite());
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         return resp;
+    }
+
+    /**
+     * Swaps customer names ({@code alias: true} columns) for their pseudonyms before anything leaves
+     * the server; a name without alias (placeholder like "Não informado") goes out empty.
+     */
+    private void pseudonimizar(List<Map<String, Object>> linhas) {
+        Set<String> chaves = widgetProperties.getDetalhe().stream()
+                .filter(WidgetProperties.Coluna::isAlias)
+                .map(WidgetProperties.Coluna::getChave)
+                .collect(Collectors.toSet());
+        if (chaves.isEmpty() || linhas.isEmpty()) {
+            return;
+        }
+        Set<String> nomes = linhas.stream()
+                .flatMap(l -> chaves.stream().map(l::get))
+                .filter(Objects::nonNull)
+                .map(String::valueOf)
+                .collect(Collectors.toSet());
+        Map<String, String> aliases = clienteAlias.aliases(nomes);
+        for (Map<String, Object> l : linhas) {
+            for (String c : chaves) {
+                Object nome = l.get(c);
+                l.put(c, nome == null ? null : aliases.get(String.valueOf(nome)));
+            }
+        }
     }
 
     /**
