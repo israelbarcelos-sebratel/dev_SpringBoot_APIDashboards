@@ -23,8 +23,9 @@ import java.util.Map;
  * atendente, straight in SQL ({@code AVG(TIME_TO_SEC(...)) ... GROUP BY <atendente>}) — the same
  * "HH:MM:SS" columns {@code SemanticService#tempos} would otherwise pull row-by-row into Java and
  * parse on every request. One instance runs per process (matrix-api / native-api), each tagging its
- * rows with its own {@link TableGroupProperties#groupName()} ("matrix"/"native"), since both point at
- * the same shared {@code agg_tempos_atendente} table in the same MariaDB schema.
+ * rows with its own {@link TableGroupProperties#groupName()} ("matrix"/"native"), since both write to
+ * the same {@code agg_tempos_atendente} table in the app's own database (app-db). The aggregation
+ * query itself runs on the source database.
  *
  * <p>Only the "atendimentos" domain is refreshed — it's the one the TMA/TME Chrome extension polls
  * per-atendente every 15s; other domains still compute their (whole-filter, not per-agent) aggregates

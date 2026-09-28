@@ -25,4 +25,7 @@ ARG PORT=8091
 ENV SERVER_PORT=${PORT}
 EXPOSE ${PORT}
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Fuso local: o driver MariaDB alinha o time_zone da sessão ao da JVM, então em UTC o NOW()/CURDATE()
+# das queries sairia 3h adiantado e o "hoje" do /ext/widget viraria o dia às 21h.
+ENV TZ=America/Sao_Paulo
+ENTRYPOINT ["java", "-Duser.timezone=America/Sao_Paulo", "-jar", "app.jar"]

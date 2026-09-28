@@ -13,10 +13,15 @@ spring:
 
 app:
   db-schema: ${DB_NAME:API_WebDeveloper}
-  # Atendentes com papel de administrador (ver RoleController/AdminsProperties) — nomes
-  # separados por vírgula, exatamente como aparecem no campo "atendente".
-  admins: ${ADMIN_USERS:}
+  # Login SSO da extensão de Chrome (ver ExtController). O client id é público, não é segredo.
+  google-client-id: ${GOOGLE_CLIENT_ID:243355917213-oa2b664bbmlskjkb9losafj6a8rsbtb2.apps.googleusercontent.com}
+  allowed-email-domain: ${ALLOWED_EMAIL_DOMAIN:sebratel.com.br}
+  # E-mails sempre admin (bootstrap), separados por vírgula; os demais papéis ficam em usuarios_extensao.
+  admin-emails: ${ADMIN_EMAILS:}
   cors-allowed-origin: ${BFF_ORIGIN:http://localhost:4002}
+  # /ext/widget: coluna que define "hoje" em atendimentos (ver TemposHojeJob).
+  widget:
+    data-coluna: data_hora
   group:
     name: native
     tables:

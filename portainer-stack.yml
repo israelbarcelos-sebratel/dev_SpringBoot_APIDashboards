@@ -5,8 +5,36 @@
 #     O "Web editor" NÃO builda; Docker Swarm NÃO builda — use Docker standalone.
 #   - As variáveis ${...} são preenchidas na aba "Environment variables" da stack.
 #     NÃO comite senha aqui.
+#   - APP_DB_PASSWORD é obrigatória: senha do banco próprio da aplicação (app-db), criado vazio no
+#     primeiro deploy (volume app-db-data). As tabelas são criadas pelas APIs no startup. Não troque
+#     a senha depois do primeiro deploy — o MariaDB só a lê ao inicializar um volume novo.
+
+x-app-db-env: &app-db-env
+  APP_DB_HOST: app-db
+  APP_DB_PORT: "3306"
+  APP_DB_NAME: "${APP_DB_NAME:-sebratel_app}"
+  APP_DB_USER: "${APP_DB_USER:-sebratel_app}"
+  APP_DB_PASSWORD: "${APP_DB_PASSWORD:?defina APP_DB_PASSWORD}"
 
 services:
+  app-db:
+    image: mariadb:11.4
+    container_name: apis-app-db
+    environment:
+      MARIADB_DATABASE: "${APP_DB_NAME:-sebratel_app}"
+      MARIADB_USER: "${APP_DB_USER:-sebratel_app}"
+      MARIADB_PASSWORD: "${APP_DB_PASSWORD:?defina APP_DB_PASSWORD}"
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      TZ: America/Sao_Paulo
+    volumes:
+      - app-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   matrix-api:
     build:
       context: .
@@ -26,9 +54,11 @@ services:
       DB_NAME: "${DB_NAME}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
-      CACHE_DB_USER: "${CACHE_DB_USER:-}"
-      CACHE_DB_PASSWORD: "${CACHE_DB_PASSWORD:-}"
-      ADMIN_USERS: "${ADMIN_USERS:-}"
+      <<: *app-db-env
+      ADMIN_EMAILS: "${ADMIN_EMAILS:-}"
+    depends_on:
+      app-db:
+        condition: service_healthy
     restart: unless-stopped
 
   native-api:
@@ -50,7 +80,12 @@ services:
       DB_NAME: "${DB_NAME}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
-      CACHE_DB_USER: "${CACHE_DB_USER:-}"
-      CACHE_DB_PASSWORD: "${CACHE_DB_PASSWORD:-}"
-      ADMIN_USERS: "${ADMIN_USERS:-}"
+      <<: *app-db-env
+      ADMIN_EMAILS: "${ADMIN_EMAILS:-}"
+    depends_on:
+      app-db:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  app-db-data:

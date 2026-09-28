@@ -1,5 +1,6 @@
 package com.sebratel.dashboards.common.web;
 
+import com.sebratel.dashboards.common.auth.AuthException;
 import com.sebratel.dashboards.common.schema.UnknownTableException;
 import com.sebratel.dashboards.common.semantic.UnknownDomainException;
 import org.springframework.http.HttpStatus;
@@ -30,5 +31,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, String>> handleIllegalState(IllegalStateException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<Map<String, String>> handleAuth(AuthException ex) {
+        return ResponseEntity.status(ex.status()).body(Map.of("error", ex.getMessage()));
     }
 }
