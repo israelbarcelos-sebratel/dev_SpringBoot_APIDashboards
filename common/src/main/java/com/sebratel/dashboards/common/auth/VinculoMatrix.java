@@ -20,7 +20,8 @@ import java.util.Map;
  * atendente(s) with no self-selection (which let anyone pick someone else's name).
  *
  * <p>One person can appear under several names (sector changes, "Backoffice - X" vs
- * "X - Backoffice"), so each e-mail maps to a list, most frequent first. Rebuilt every 10 minutes
+ * "X - Backoffice"), so each e-mail maps to a list, most recently used first: whoever changed areas
+ * or was renamed shows up under the cadastro they use now, not the one with more history. Rebuilt every 10 minutes
  * (one grouped scan); both apps build it from db_matrix and use the same names for native.
  */
 @Component
@@ -31,26 +32,30 @@ public class VinculoMatrix {
     private final JdbcTemplate jdbcTemplate;
     private final String tabela;
     private final String dominio;
+    private final String dataColuna;
     private volatile Map<String, List<String>> porEmail = Map.of();
 
     public VinculoMatrix(JdbcTemplate jdbcTemplate,
                          @Value("${app.vinculo.tabela:db_matrix}") String tabela,
-                         @Value("${app.allowed-email-domain}") String dominio) {
+                         @Value("${app.allowed-email-domain}") String dominio,
+                         @Value("${app.vinculo.data-coluna:data_entrada}") String dataColuna) {
         this.jdbcTemplate = jdbcTemplate;
         this.tabela = tabela;
         this.dominio = dominio;
+        this.dataColuna = dataColuna;
     }
 
-    /** Names for this e-mail, most frequent first; empty if the e-mail never attended in Matrix. */
+    /** Names for this e-mail, most recently used first; empty if the e-mail never attended in Matrix. */
     public List<String> nomes(String email) {
         return porEmail.getOrDefault(email.toLowerCase(Locale.ROOT), List.of());
     }
 
     @Scheduled(initialDelay = 1_000, fixedRate = 600_000)
     public void refresh() {
-        String sql = "SELECT LOWER(TRIM(email)) AS email, atendente, COUNT(*) AS n FROM `" + tabela + "` "
+        // Datas da db_matrix são varchar 'YYYY-MM-DD HH:MM:SS': o MAX textual é o mais recente.
+        String sql = "SELECT LOWER(TRIM(email)) AS email, atendente, MAX(`" + dataColuna + "`) AS ultimo FROM `" + tabela + "` "
                 + "WHERE email LIKE ? AND atendente IS NOT NULL AND atendente <> '' "
-                + "GROUP BY LOWER(TRIM(email)), atendente ORDER BY email, n DESC";
+                + "GROUP BY LOWER(TRIM(email)), atendente ORDER BY email, ultimo DESC";
         try {
             Map<String, List<String>> mapa = new HashMap<>();
             jdbcTemplate.query(sql, rs -> {

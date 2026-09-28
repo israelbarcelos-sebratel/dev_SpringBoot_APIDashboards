@@ -42,8 +42,19 @@ app:
     tempos:
       tma:
         hms: atendimento
+        formula: Duração da conversa com o atendente (coluna atendimento da Native)
       tme:
         hms: espera
+        formula: Tempo aguardando na fila até ser atendido (coluna espera da Native)
+    # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem telefone/gravação de propósito; o
+    # cliente sai só como alias (ClienteAlias — a relação alias -> nome fica em cliente_alias no app-db).
+    detalhe:
+      - { chave: dataHora, rotulo: Data/hora, coluna: data_hora }
+      - { chave: protocolo, rotulo: Protocolo, coluna: protocolo }
+      - { chave: cliente, rotulo: Cliente (alias), coluna: nome_cliente, alias: true }
+      - { chave: fila, rotulo: Fila, coluna: fila }
+      - { chave: sentido, rotulo: Sentido, coluna: sentido }
+      - { chave: desconexao, rotulo: Desconexão, coluna: desconexao }
   group:
     name: native
     tables:

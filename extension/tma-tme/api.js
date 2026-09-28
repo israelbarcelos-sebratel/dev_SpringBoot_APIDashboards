@@ -77,6 +77,12 @@ const SebratelApi = {
     return this.request(base, `/ext/widget${q}`);
   },
 
+  /** GET /ext/widget/detalhe: atendimentos de hoje, um a um, com a formação de cada tempo. */
+  detalhe(base, atendente) {
+    const q = atendente ? `?atendente=${encodeURIComponent(atendente)}` : "";
+    return this.request(base, `/ext/widget/detalhe${q}`);
+  },
+
   async getMetrics() {
     const cfg = await this.getConfig();
     const alvo = cfg.viewingAgent || "";

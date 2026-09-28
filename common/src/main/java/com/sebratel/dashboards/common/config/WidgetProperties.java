@@ -3,7 +3,9 @@ package com.sebratel.dashboards.common.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -19,6 +21,9 @@ import java.util.Map;
  *     tempos:
  *       tma: { inicio: data_atendimento, fim: data_finalizacao }   # gap between two datetimes
  *       tme: { hms: espera }                                       # "HH:MM:SS" varchar
+ *     detalhe:                            # columns of the per-call table (/ext/widget/detalhe)
+ *       - { chave: protocolo, rotulo: Protocolo, coluna: protocolo }
+ *       - { chave: cliente, rotulo: Cliente, coluna: contato, alias: true }  # pseudonymized
  * </pre>
  */
 @Component
@@ -27,6 +32,8 @@ public class WidgetProperties {
 
     private String dataColuna;
     private Map<String, Metrica> tempos = new LinkedHashMap<>();
+    private List<Coluna> detalhe = new ArrayList<>();
+    private int detalheLimite = 2000;
 
     public String getDataColuna() {
         return dataColuna;
@@ -44,8 +51,71 @@ public class WidgetProperties {
         this.tempos = tempos;
     }
 
-    /** Either {@code hms} (an "HH:MM:SS" column) or {@code inicio}+{@code fim} (two datetime columns). */
+    public List<Coluna> getDetalhe() {
+        return detalhe;
+    }
+
+    public void setDetalhe(List<Coluna> detalhe) {
+        this.detalhe = detalhe;
+    }
+
+    public int getDetalheLimite() {
+        return detalheLimite;
+    }
+
+    public void setDetalheLimite(int detalheLimite) {
+        this.detalheLimite = detalheLimite;
+    }
+
+    /**
+     * One column of the per-call table: {@code chave} in the JSON, {@code rotulo} in the UI.
+     * {@code alias: true} replaces the value with its {@code ClienteAlias} pseudonym (customer names).
+     */
+    public static class Coluna {
+        private String chave;
+        private String rotulo;
+        private String coluna;
+        private boolean alias;
+
+        public boolean isAlias() {
+            return alias;
+        }
+
+        public void setAlias(boolean alias) {
+            this.alias = alias;
+        }
+
+        public String getChave() {
+            return chave;
+        }
+
+        public void setChave(String chave) {
+            this.chave = chave;
+        }
+
+        public String getRotulo() {
+            return rotulo;
+        }
+
+        public void setRotulo(String rotulo) {
+            this.rotulo = rotulo;
+        }
+
+        public String getColuna() {
+            return coluna;
+        }
+
+        public void setColuna(String coluna) {
+            this.coluna = coluna;
+        }
+    }
+
+    /**
+     * Either {@code hms} (an "HH:MM:SS" column) or {@code inicio}+{@code fim} (two datetime columns).
+     * {@code formula} is the human explanation shown next to the metric in the per-call table.
+     */
     public static class Metrica {
+        private String formula;
         private String hms;
         private String inicio;
         private String fim;
@@ -59,6 +129,14 @@ public class WidgetProperties {
                 return "TIMESTAMPDIFF(SECOND, `" + inicio + "`, `" + fim + "`)";
             }
             throw new IllegalStateException("app.widget.tempos: informe 'hms' ou 'inicio' e 'fim'.");
+        }
+
+        public String getFormula() {
+            return formula;
+        }
+
+        public void setFormula(String formula) {
+            this.formula = formula;
         }
 
         public String getHms() {

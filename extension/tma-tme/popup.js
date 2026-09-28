@@ -49,10 +49,7 @@ async function render() {
   const nomesEl = $("who-nomes");
   nomesEl.innerHTML = "";
   if (me.nomes && me.nomes.length) {
-    me.nomes.forEach((n, i) => {
-      if (i) nomesEl.append(document.createElement("br"));
-      nomesEl.append(n);
-    });
+    nomesEl.append(me.atendente);
     nomesEl.append(document.createElement("br"));
     nomesEl.append(me.vinculo === "manual" ? badge("definido pelo administrador", "manual") : badge("automático pela Matrix", "auto"));
   } else {
@@ -61,6 +58,15 @@ async function render() {
   const roleEl = $("who-role");
   roleEl.innerHTML = "";
   roleEl.append(me.role === "admin" ? badge("administrador", "admin") : badge("usuário comum", "user"));
+
+  // Mais de um cadastro no mesmo e-mail (trocou de área): a pessoa escolhe qual usar; o servidor guarda.
+  const variosCadastros = me.nomes && me.nomes.length > 1;
+  $("pref-area").style.display = variosCadastros ? "block" : "none";
+  if (variosCadastros) {
+    fillSelect($("pref-select"), me.nomes, "Todos os cadastros (somados)");
+    $("pref-select").value = me.preferido || "";
+    $("pref-notice").style.display = me.preferido ? "none" : "block";
+  }
 
   const semVinculo = !me.nomes || !me.nomes.length;
   $("who-unbound").style.display = semVinculo ? "block" : "none";
@@ -108,6 +114,20 @@ $("support-btn").addEventListener("click", async () => {
   }
 });
 
+$("pref-select").addEventListener("change", async (e) => {
+  const select = e.target;
+  select.disabled = true;
+  try {
+    await nativeReq("/ext/me/preferido", { method: "PUT", body: { atendente: select.value } });
+    msg("Cadastro salvo. O widget vai atualizar em até 15s.", "ok");
+    render();
+  } catch (err) {
+    msg(err.message);
+  } finally {
+    select.disabled = false;
+  }
+});
+
 $("viewing-agent").addEventListener("change", async (e) => {
   await SebratelApi.setConfig({ viewingAgent: e.target.value });
   msg("O widget vai atualizar em até 15s.", "ok");
@@ -131,6 +151,11 @@ $("mg-save").addEventListener("click", async () => {
   } catch (err) {
     msg(err.message);
   }
+});
+
+$("detalhe-btn").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("detalhes.html") });
+  window.close();
 });
 
 $("show-btn").addEventListener("click", async () => {

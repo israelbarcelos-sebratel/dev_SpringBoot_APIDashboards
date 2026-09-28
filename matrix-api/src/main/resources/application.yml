@@ -46,14 +46,29 @@ app:
       tma:
         inicio: data_atendimento
         fim: data_finalizacao
+        formula: Finalização − início do atendimento
       tme:
         inicio: data_fila
         fim: data_atendimento
+        formula: Início do atendimento − entrada na fila
       # Tempos de interação que a Matrix já calcula ("HH:MM:SS").
       tmic:
         hms: tmic
+        formula: Tempo médio de interação do cliente (calculado pela Matrix)
       tmia:
         hms: tmia
+        formula: Tempo médio de interação do atendente (calculado pela Matrix)
+    # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem CPF/telefone de propósito; o cliente
+    # sai só como alias (ClienteAlias — a relação alias -> nome fica na tabela cliente_alias do app-db).
+    detalhe:
+      - { chave: protocolo, rotulo: Protocolo, coluna: protocolo }
+      - { chave: cliente, rotulo: Cliente (alias), coluna: contato, alias: true }
+      - { chave: canal, rotulo: Canal, coluna: canal }
+      - { chave: servico, rotulo: Serviço, coluna: servico }
+      - { chave: entrada, rotulo: Entrada, coluna: data_entrada }
+      - { chave: fila, rotulo: Entrou na fila, coluna: data_fila }
+      - { chave: atendimento, rotulo: Início do atendimento, coluna: data_atendimento }
+      - { chave: finalizacao, rotulo: Finalização, coluna: data_finalizacao }
   group:
     name: matrix
     tables:

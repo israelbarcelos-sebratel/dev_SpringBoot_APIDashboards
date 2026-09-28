@@ -28,6 +28,20 @@
     });
   }
 
+  // Ícones (lucide, stroke = currentColor) dos botões do cabeçalho.
+  const ICON_PIN =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" x2="12" y1="17" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>';
+  const ICON_TABELA =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>';
+
+  /** Fixado = sempre opaco; senão fica translúcido e só fica opaco com o mouse em cima. */
+  function aplicarPin(el, pinned) {
+    el.classList.toggle("pinned", Boolean(pinned));
+    const btn = el.querySelector(".pin-btn");
+    btn.title = pinned ? "Desafixar (voltar a ficar translúcido)" : "Fixar opaco";
+    btn.setAttribute("aria-pressed", pinned ? "true" : "false");
+  }
+
   function buildWidget() {
     if (document.getElementById("sebratel-tma-widget")) return;
 
@@ -36,7 +50,11 @@
     el.innerHTML = `
       <div class="header">
         <span><span class="status-dot"></span><span class="brand">Sebratel</span><span class="brand-system"> · TMA/TME</span></span>
-        <span class="close-btn" title="Fechar">&times;</span>
+        <span class="header-actions">
+          <button type="button" class="hbtn table-btn" title="Tabela completa de atendimentos de hoje">${ICON_TABELA}</button>
+          <button type="button" class="hbtn pin-btn" aria-pressed="false">${ICON_PIN}</button>
+          <button type="button" class="hbtn close-btn" title="Fechar">&times;</button>
+        </span>
       </div>
       <div class="body">
         <div class="section" id="sebratel-section-native">
@@ -84,6 +102,21 @@
       saveState({ hidden: true });
     });
 
+    el.querySelector(".pin-btn").addEventListener("click", () => {
+      const pinned = !el.classList.contains("pinned");
+      aplicarPin(el, pinned);
+      saveState({ pinned });
+    });
+
+    el.querySelector(".table-btn").addEventListener("click", () => {
+      if (!extensaoValida()) return;
+      try {
+        chrome.runtime.sendMessage({ type: "openDetalhes" });
+      } catch {
+        /* script órfão: o aviso de F5 já está no widget */
+      }
+    });
+
     makeDraggable(el, el.querySelector(".header"));
     return el;
   }
@@ -107,6 +140,7 @@
     let offsetY = 0;
 
     handle.addEventListener("mousedown", (e) => {
+      if (e.target.closest(".hbtn")) return; // clique nos botões do cabeçalho não arrasta
       dragging = true;
       el.classList.add("dragging");
       offsetX = e.clientX - el.offsetLeft;
@@ -256,6 +290,7 @@
     if (state.hidden) {
       el.style.display = "none";
     }
+    aplicarPin(el, state.pinned);
     if (state.left && state.top) {
       el.style.left = state.left;
       el.style.top = state.top;
@@ -278,6 +313,7 @@
       if (area !== "local" || !changes[STORAGE_KEY]) return;
       const newVal = changes[STORAGE_KEY].newValue || {};
       el.style.display = newVal.hidden ? "none" : "block";
+      aplicarPin(el, newVal.pinned); // fixar numa aba vale para todas
       garantirVisivel(el);
     });
   }
