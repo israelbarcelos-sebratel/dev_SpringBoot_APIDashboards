@@ -1,0 +1,208 @@
+/*
+ * Widget flutuante — design system Sebratel (tokens do DHO: dho/frontend/src/styles/variables.css).
+ * Tema claro único (o DS removeu o dark mode). Tudo escopado em #sebratel-tma-widget para não vazar
+ * para a página nem herdar estilos dela.
+ */
+#sebratel-tma-widget {
+  --stw-primary: #ffb000;
+  --stw-primary-contrast: #111111;
+  --stw-primary-soft: #fff3d6;
+  --stw-bg: #f5f1e8;
+  --stw-card: #ffffff;
+  --stw-surface-2: #faf7ef;
+  --stw-text: #2a2a28;
+  --stw-text-primary: #111111;
+  --stw-text-secondary: #5e5b50;
+  --stw-border: #e0dacb;
+  --stw-border-subtle: #ede8db;
+  --stw-success: #0f7a37; /* --status-success-text (AA sobre branco) */
+  --stw-warning: #b45309; /* --warning-hover (AA sobre branco) */
+  --stw-error: #dc2626;
+  --stw-error-soft: #fce9e9;
+  --stw-no-data: #b7b2a4; /* ausência de dado: cinza neutro, nunca vermelho */
+  --stw-shadow: 0 8px 16px -4px rgba(40, 33, 20, 0.1), 0 12px 28px -6px rgba(40, 33, 20, 0.12);
+
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 2147483647;
+  width: 232px;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--stw-text);
+  background: var(--stw-card);
+  border: 1px solid var(--stw-border);
+  border-radius: 12px;
+  box-shadow: var(--stw-shadow);
+  overflow: hidden;
+  user-select: none;
+  text-align: left;
+  -webkit-font-smoothing: antialiased;
+  transition: opacity 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+#sebratel-tma-widget * {
+  box-sizing: border-box;
+}
+
+#sebratel-tma-widget.dragging {
+  opacity: 0.88;
+}
+
+/* Masthead âmbar, como nos e-mails e no DHO: "Sebratel · TMA/TME". */
+#sebratel-tma-widget .header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  background: var(--stw-primary);
+  color: var(--stw-primary-contrast);
+  cursor: grab;
+  font-size: 13px;
+}
+
+#sebratel-tma-widget .brand {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+#sebratel-tma-widget .brand-system {
+  opacity: 0.72;
+  font-weight: 400;
+}
+
+#sebratel-tma-widget .header .status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--stw-primary-contrast);
+  margin-right: 7px;
+  display: inline-block;
+  vertical-align: middle;
+  opacity: 0.8;
+}
+
+#sebratel-tma-widget .close-btn {
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  border-radius: 6px;
+  font-size: 15px;
+  color: var(--stw-primary-contrast);
+  opacity: 0.7;
+  transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), opacity 120ms;
+}
+#sebratel-tma-widget .close-btn:hover {
+  opacity: 1;
+  background: rgba(17, 17, 17, 0.1);
+}
+
+#sebratel-tma-widget .body {
+  padding: 10px 12px 6px;
+}
+
+#sebratel-tma-widget .section {
+  padding: 4px 0 6px;
+}
+#sebratel-tma-widget .section + .section {
+  border-top: 1px solid var(--stw-border-subtle);
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
+/* Marcador de seção do DS: acento âmbar de 4px + título. */
+#sebratel-tma-widget .section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--stw-text-primary);
+}
+
+#sebratel-tma-widget .section-title .marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+#sebratel-tma-widget .section-title .marker::before {
+  content: "";
+  width: 4px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--stw-primary);
+}
+
+#sebratel-tma-widget .section-meta {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--stw-text-secondary);
+}
+
+#sebratel-tma-widget .section-error {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--stw-error-soft);
+  color: var(--stw-error);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+#sebratel-tma-widget .metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--stw-border-subtle);
+}
+#sebratel-tma-widget .metric-row:last-of-type {
+  border-bottom: none;
+}
+
+#sebratel-tma-widget .metric-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--stw-text-secondary);
+}
+
+#sebratel-tma-widget .metric-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--stw-text-primary);
+}
+
+#sebratel-tma-widget .metric-value.empty { color: var(--stw-no-data); }
+#sebratel-tma-widget .metric-value.ok { color: var(--stw-success); }
+#sebratel-tma-widget .metric-value.warn { color: var(--stw-warning); }
+#sebratel-tma-widget .metric-value.bad { color: var(--stw-error); }
+
+#sebratel-tma-widget .footer {
+  padding: 7px 12px 9px;
+  background: var(--stw-surface-2);
+  border-top: 1px solid var(--stw-border-subtle);
+  font-size: 10.5px;
+  color: var(--stw-text-secondary);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#sebratel-tma-widget #sebratel-agent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sebratel-tma-widget,
+  #sebratel-tma-widget * {
+    transition-duration: 0.001ms !important;
+  }
+}

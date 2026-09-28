@@ -19,6 +19,8 @@ RUN mvn -q -DskipTests -pl ${MODULE} -am package \
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/app.jar app.jar
+# Pacote da extensão de Chrome servido em /download (ExtensaoDownloadController).
+COPY extension/tma-tme /app/extension
 
 # Porta não ortodoxa por padrão (8091). Spring lê SERVER_PORT (ver application.yml).
 ARG PORT=8091
