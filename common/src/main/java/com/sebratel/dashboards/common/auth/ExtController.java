@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -70,42 +69,25 @@ public class ExtController {
     }
 
     /**
-     * Times for {@code atendente} (defaults to the caller's own). Common users asking for someone else
-     * get 403 — the extension can't bypass this by editing its storage.
-     */
-    @GetMapping("/ext/tempos")
-    public Map<String, Object> tempos(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
-                                      @RequestParam(required = false) String atendente,
-                                      @RequestParam(required = false) Integer meses) {
-        Usuario u = usuarios.find(email);
-        String alvo = resolverAlvo(u, atendente);
-        Map<String, String> filtros = new HashMap<>();
-        filtros.put("atendente", alvo);
-        MetricResponse resp = semantic.tempos(DOMINIO, filtros, meses == null ? 1 : meses);
-        Object categorias = resp.dados() instanceof Map<?, ?> m ? m.get("categorias") : List.of();
-        return Map.of("atendente", alvo, "role", u.role(), "categorias", categorias);
-    }
-
-    /**
-     * Everything the floating widget shows, in one call: today's averages (in-memory, refreshed every
-     * minute by {@link TemposHojeJob}), the 6-week averages from {@code agg_tempos_atendente} for
-     * context, and how fresh the ingested data is ({@code ultimoRegistro}). Metric keys are this
-     * app's "tempos" names (native: atendimento/espera; matrix: tempoFila/tmic/tmia). Same visibility
-     * rule as /ext/tempos.
+     * Everything the floating widget shows, in one call: today's averages only (in memory, see
+     * {@link TemposHojeJob}) — monthly/longer views are for managers via the dashboards — plus how
+     * fresh the ingested data is ({@code ultimoRegistro}). Metric keys come from
+     * {@code app.widget.tempos} ("tma"/"tme" in both systems, plus "tmic"/"tmia" in matrix). Same
+     * visibility rule for everyone: a common user only gets their own atendente (403 otherwise — the
+     * extension can't bypass this by editing its storage); an admin may ask for anyone.
      */
     @GetMapping("/ext/widget")
     public Map<String, Object> widget(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
                                       @RequestParam(required = false) String atendente) {
         Usuario u = usuarios.find(email);
         String alvo = resolverAlvo(u, atendente);
-        TemposHojeJob.Snapshot hoje = temposHoje.snapshot();
+        TemposHojeJob.Snapshot hoje = temposHoje.hoje();
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("sistema", groupProperties.groupName());
         resp.put("atendente", alvo);
         resp.put("role", u.role());
         resp.put("hoje", hoje.porAtendente().getOrDefault(alvo, Map.of()));
-        resp.put("seisSemanas", temposCache.get(groupProperties.groupName(), alvo));
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hoje.calculadoEm());
         return resp;

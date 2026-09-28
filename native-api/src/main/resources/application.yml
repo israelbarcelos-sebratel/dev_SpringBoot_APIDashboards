@@ -19,9 +19,14 @@ app:
   # E-mails sempre admin (bootstrap), separados por vírgula; os demais papéis ficam em usuarios_extensao.
   admin-emails: ${ADMIN_EMAILS:}
   cors-allowed-origin: ${BFF_ORIGIN:http://localhost:4002}
-  # /ext/widget: coluna que define "hoje" em atendimentos (ver TemposHojeJob).
+  # /ext/widget (ver WidgetProperties/TemposHojeJob): coluna que define "hoje" e as métricas exibidas.
   widget:
     data-coluna: data_hora
+    tempos:
+      tma:
+        hms: atendimento
+      tme:
+        hms: espera
   group:
     name: native
     tables:
