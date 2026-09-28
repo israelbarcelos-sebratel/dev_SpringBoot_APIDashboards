@@ -19,10 +19,24 @@ app:
   # E-mails sempre admin (bootstrap), separados por vírgula; os demais papéis ficam em usuarios_extensao.
   admin-emails: ${ADMIN_EMAILS:}
   cors-allowed-origin: ${BFF_ORIGIN:http://localhost:4001}
-  # /ext/widget: coluna que define "hoje" em atendimentos (ver TemposHojeJob). Em db_matrix é
-  # varchar 'YYYY-MM-DD HH:MM:SS' (a tabela não tem coluna DATETIME).
+  # /ext/widget (ver WidgetProperties/TemposHojeJob): coluna que define "hoje" e as métricas exibidas.
+  # Em db_matrix as datas são varchar 'YYYY-MM-DD HH:MM:SS' (a tabela não tem coluna DATETIME), e não
+  # há colunas prontas de TMA/TME (tempo_fila vem quase sempre vazio): derivamos das datas.
+  #   TMA = assumiu o atendimento -> finalizou;  TME = entrou na fila -> agente assumiu (sem o tempo no bot).
   widget:
     data-coluna: data_entrada
+    tempos:
+      tma:
+        inicio: data_atendimento
+        fim: data_finalizacao
+      tme:
+        inicio: data_fila
+        fim: data_atendimento
+      # Tempos de interação que a Matrix já calcula ("HH:MM:SS").
+      tmic:
+        hms: tmic
+      tmia:
+        hms: tmia
   group:
     name: matrix
     tables:
