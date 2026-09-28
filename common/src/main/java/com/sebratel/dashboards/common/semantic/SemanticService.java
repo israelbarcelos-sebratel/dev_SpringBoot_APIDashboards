@@ -1,7 +1,9 @@
 package com.sebratel.dashboards.common.semantic;
 
+import com.sebratel.dashboards.common.cache.TemposAtendenteCache;
 import com.sebratel.dashboards.common.config.SemanticDomainProperties;
 import com.sebratel.dashboards.common.config.SemanticDomainProperties.Domain;
+import com.sebratel.dashboards.common.config.TableGroupProperties;
 import com.sebratel.dashboards.common.dto.BreakdownTimeSeriesResponse;
 import com.sebratel.dashboards.common.dto.TimeSeriesResponse;
 import com.sebratel.dashboards.common.semantic.MetricResponse.Periodo;
@@ -31,10 +33,15 @@ public class SemanticService {
 
     private final TableDataService data;
     private final SemanticDomainProperties props;
+    private final TemposAtendenteCache temposCache;
+    private final TableGroupProperties groupProperties;
 
-    public SemanticService(TableDataService data, SemanticDomainProperties props) {
+    public SemanticService(TableDataService data, SemanticDomainProperties props,
+                            TemposAtendenteCache temposCache, TableGroupProperties groupProperties) {
         this.data = data;
         this.props = props;
+        this.temposCache = temposCache;
+        this.groupProperties = groupProperties;
     }
 
     /** Score -> sentiment label + emoji, worst to best (see the satisfaction data model). */
@@ -78,6 +85,8 @@ public class SemanticService {
 
     public MetricResponse resumo(String dominio, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
+        filtros = traduzirFiltros(d, filtros);
+        meses = efetivo(d, meses);
         Periodo periodo = periodo(d, filtros, meses);
         Map<String, Object> resumo = new LinkedHashMap<>();
         List<String> insights = new ArrayList<>();
@@ -112,6 +121,8 @@ public class SemanticService {
 
     public MetricResponse volume(String dominio, String por, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
+        filtros = traduzirFiltros(d, filtros);
+        meses = efetivo(d, meses);
         TimeSeriesResponse resp = data.getTimeSeries(d.getTabela(), null, granularidade(por), filtros, meses);
         TimeSeriesResult s = resp.series();
 
@@ -140,6 +151,8 @@ public class SemanticService {
     /** Satisfaction-style evolution: one line per score, over time. */
     public MetricResponse evolucao(String dominio, String por, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
+        filtros = traduzirFiltros(d, filtros);
+        meses = efetivo(d, meses);
         if (d.getNotaColumn() == null) {
             throw new IllegalArgumentException("O domínio '" + dominio + "' não tem série por nota configurada.");
         }
@@ -169,6 +182,8 @@ public class SemanticService {
 
     public MetricResponse porDimensao(String dominio, String dimensao, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
+        filtros = traduzirFiltros(d, filtros);
+        meses = efetivo(d, meses);
         String coluna = requireDimensao(d, dimensao);
         CategoricalStats cat = data.categoricalColumn(d.getTabela(), coluna, filtros, meses);
         boolean satisfacao = coluna.equals(d.getNotaColumn());
@@ -210,6 +225,8 @@ public class SemanticService {
      */
     public MetricResponse duracao(String dominio, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
+        filtros = traduzirFiltros(d, filtros);
+        meses = efetivo(d, meses);
         SemanticDomainProperties.Duracao cfg = d.getDuracao();
         if (cfg == null) {
             Map<String, Object> vazio = new LinkedHashMap<>();
@@ -273,17 +290,25 @@ public class SemanticService {
      */
     public MetricResponse tempos(String dominio, Map<String, String> filtros, Integer meses) {
         Domain d = require(dominio);
-        List<Map<String, Object>> categorias = new ArrayList<>();
-        for (Map.Entry<String, String> e : d.getTempos().entrySet()) {
-            String rotulo = e.getKey();
-            String coluna = e.getValue();
-            CategoricalStats.DurationSummary dur = data.categoricalColumn(d.getTabela(), coluna, filtros, meses)
-                    .durationSummary();
-            if (dur != null) {
-                Map<String, Object> c = new LinkedHashMap<>();
-                c.put("rotulo", rotulo);
-                c.put("segundosMedios", round(dur.meanSeconds()));
-                categorias.add(c);
+        filtros = traduzirFiltros(d, filtros);
+        meses = efetivo(d, meses);
+
+        List<Map<String, Object>> categorias = temposPorAtendenteEmCache(d, filtros);
+        if (categorias == null) {
+            // Sem filtro de um único atendente, ou ainda não cacheado (agente novo/1º minuto após
+            // deploy) — cai no cálculo ao vivo de sempre.
+            categorias = new ArrayList<>();
+            for (Map.Entry<String, String> e : d.getTempos().entrySet()) {
+                String rotulo = e.getKey();
+                String coluna = e.getValue();
+                CategoricalStats.DurationSummary dur = data.categoricalColumn(d.getTabela(), coluna, filtros, meses)
+                        .durationSummary();
+                if (dur != null) {
+                    Map<String, Object> c = new LinkedHashMap<>();
+                    c.put("rotulo", rotulo);
+                    c.put("segundosMedios", round(dur.meanSeconds()));
+                    categorias.add(c);
+                }
             }
         }
         Map<String, Object> dados = new LinkedHashMap<>();
@@ -295,7 +320,65 @@ public class SemanticService {
                 dados, Map.of(), List.of());
     }
 
+    /**
+     * Serves {@code /tempos} straight from {@code agg_tempos_atendente} when the request is scoped
+     * to exactly one atendente and nothing else (the shape the TMA/TME Chrome extension polls every
+     * 15s) — a single indexed lookup instead of re-scanning/parsing the raw table. Returns null when
+     * the request doesn't match that shape (no/blank/multi-value atendente filter, or extra filters
+     * like inicio/fim that the cache — always computed over the domain's default window — can't
+     * honor), so the caller falls back to the live path. Also returns null on a cold cache (agent not
+     * yet refreshed), rather than an empty result.
+     */
+    private List<Map<String, Object>> temposPorAtendenteEmCache(Domain d, Map<String, String> filtros) {
+        String atendenteCol = d.getDimensoes().get("atendente");
+        if (atendenteCol == null || filtros.size() != 1) {
+            return null;
+        }
+        String atendente = filtros.get(atendenteCol);
+        if (atendente == null || atendente.isBlank() || atendente.contains(",")) {
+            return null;
+        }
+
+        Map<String, Double> cache = temposCache.get(groupProperties.groupName(), atendente);
+        if (cache.isEmpty()) {
+            return null;
+        }
+
+        List<Map<String, Object>> categorias = new ArrayList<>();
+        for (String rotulo : d.getTempos().keySet()) {
+            Double segundos = cache.get(rotulo);
+            if (segundos != null) {
+                Map<String, Object> c = new LinkedHashMap<>();
+                c.put("rotulo", rotulo);
+                c.put("segundosMedios", round(segundos));
+                categorias.add(c);
+            }
+        }
+        return categorias;
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * Translates dimension aliases in an incoming filter map (e.g. {@code atendente}, from the public
+     * API) to the real database column they're configured against (e.g. {@code agente} in native,
+     * {@code nom_agente} in matrix — see {@code app.domains.<x>.dimensoes}). Without this, a filter
+     * like {@code ?atendente=X} reaches {@link TableDataService} with a key that matches no real
+     * column, so {@code buildWhere} silently drops it and every query returns the domain's unfiltered
+     * aggregate. Reserved range/hour keys (inicio, fim, horaInicio, horaFim) and any key that isn't a
+     * known dimension pass through unchanged.
+     */
+    private static Map<String, String> traduzirFiltros(Domain d, Map<String, String> filtros) {
+        if (filtros == null || filtros.isEmpty()) {
+            return filtros;
+        }
+        Map<String, String> traduzidos = new LinkedHashMap<>();
+        for (Map.Entry<String, String> f : filtros.entrySet()) {
+            String coluna = d.getDimensoes().get(f.getKey());
+            traduzidos.put(coluna != null ? coluna : f.getKey(), f.getValue());
+        }
+        return traduzidos;
+    }
 
     private Domain require(String dominio) {
         Domain d = props.domain(dominio);
@@ -303,6 +386,17 @@ public class SemanticService {
             throw new UnknownDomainException(dominio);
         }
         return d;
+    }
+
+    /**
+     * Resolves the effective {@code meses} window: an explicit request value always wins; otherwise
+     * falls back to the domain's own {@code defaultMeses} (e.g. "último ano" for respostaCliente),
+     * or null when the domain doesn't override it — in which case {@link TableDataService} applies
+     * its own framework-wide default (last 6 weeks). An explicit {@code inicio}/{@code fim} filter
+     * takes priority over all of this further downstream, in {@code TableDataService}.
+     */
+    private static Integer efetivo(Domain d, Integer meses) {
+        return meses != null ? meses : d.getDefaultMeses();
     }
 
     private String requireDimensao(Domain d, String dimensao) {

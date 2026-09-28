@@ -49,6 +49,12 @@ public class SemanticDomainProperties {
         private String unidade = "registros";
         /** Numeric score column (e.g. satisfaction 1..5); enables the satisfaction-style resumo. */
         private String notaColumn;
+        /**
+         * Default fetch window (in months) for this domain when the request gives neither an explicit
+         * {@code inicio}/{@code fim} range nor a {@code meses} override. Null falls back to the
+         * framework-wide default (last 6 weeks) used by every other domain today.
+         */
+        private Integer defaultMeses;
         /** Semantic dimension name -> real column name (canal -> canal, motivo -> nom_motivo, …). */
         private Map<String, String> dimensoes = new LinkedHashMap<>();
         /**
@@ -106,6 +112,14 @@ public class SemanticDomainProperties {
 
         public void setNotaColumn(String notaColumn) {
             this.notaColumn = notaColumn;
+        }
+
+        public Integer getDefaultMeses() {
+            return defaultMeses;
+        }
+
+        public void setDefaultMeses(Integer defaultMeses) {
+            this.defaultMeses = defaultMeses;
         }
 
         public Map<String, String> getDimensoes() {

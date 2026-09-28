@@ -1,5 +1,7 @@
-# Sobe as APIs Java em portas não ortodoxas a partir de 8091.
-#   matrix-api -> 8091   |   native-api -> 8092
+# Sobe as APIs Java localmente. Portas internas dos containers seguem 8091/8092 (mesmo
+# valor usado em produção), mas o mapeamento de porta NO HOST é 18091/18092 — 8091 já está
+# ocupada nesta máquina por outro serviço (radar-frota-api, ver `docker ps`).
+#   matrix-api -> host 18091 (container 8091)   |   native-api -> host 18092 (container 8092)
 #
 # Credenciais e host do banco vêm de um arquivo .env (NÃO versionado).
 # Copie o modelo antes de subir:
@@ -20,7 +22,7 @@ services:
     image: matrix-api:local
     container_name: matrix-api
     ports:
-      - "8091:8091"
+      - "18091:8091"
     env_file: .env
     environment:
       SERVER_PORT: "8091"
@@ -37,7 +39,7 @@ services:
     image: native-api:local
     container_name: native-api
     ports:
-      - "8092:8092"
+      - "18092:8092"
     env_file: .env
     environment:
       SERVER_PORT: "8092"

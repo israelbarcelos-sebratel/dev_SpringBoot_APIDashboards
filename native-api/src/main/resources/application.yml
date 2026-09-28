@@ -13,6 +13,9 @@ spring:
 
 app:
   db-schema: ${DB_NAME:API_WebDeveloper}
+  # Atendentes com papel de administrador (ver RoleController/AdminsProperties) — nomes
+  # separados por vírgula, exatamente como aparecem no campo "atendente".
+  admins: ${ADMIN_USERS:}
   cors-allowed-origin: ${BFF_ORIGIN:http://localhost:4002}
   group:
     name: native
