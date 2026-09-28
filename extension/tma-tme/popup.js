@@ -153,6 +153,11 @@ $("mg-save").addEventListener("click", async () => {
   }
 });
 
+$("corr-btn").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("correspondencias.html") });
+  window.close();
+});
+
 $("detalhe-btn").addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("detalhes.html") });
   window.close();
