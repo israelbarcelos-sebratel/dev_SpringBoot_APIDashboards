@@ -26,6 +26,9 @@ services:
       DB_NAME: "${DB_NAME}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
+      CACHE_DB_USER: "${CACHE_DB_USER:-}"
+      CACHE_DB_PASSWORD: "${CACHE_DB_PASSWORD:-}"
+      ADMIN_USERS: "${ADMIN_USERS:-}"
     restart: unless-stopped
 
   native-api:
@@ -47,4 +50,7 @@ services:
       DB_NAME: "${DB_NAME}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
+      CACHE_DB_USER: "${CACHE_DB_USER:-}"
+      CACHE_DB_PASSWORD: "${CACHE_DB_PASSWORD:-}"
+      ADMIN_USERS: "${ADMIN_USERS:-}"
     restart: unless-stopped
