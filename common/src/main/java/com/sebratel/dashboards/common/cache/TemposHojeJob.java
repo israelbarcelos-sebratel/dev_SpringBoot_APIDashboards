@@ -61,6 +61,24 @@ public class TemposHojeJob {
         return hoje;
     }
 
+    /**
+     * Metrics of several atendente names combined as one person (a person can show up under more
+     * than one name): each metric's average weighted by its number of rows.
+     */
+    public Map<String, Tempo> somar(Snapshot snapshot, List<String> nomes) {
+        Map<String, double[]> acc = new LinkedHashMap<>(); // metrica -> {soma dos segundos, amostras}
+        for (String nome : nomes) {
+            snapshot.porAtendente().getOrDefault(nome, Map.of()).forEach((metrica, t) -> {
+                double[] a = acc.computeIfAbsent(metrica, k -> new double[2]);
+                a[0] += t.segundosMedios() * t.amostras();
+                a[1] += t.amostras();
+            });
+        }
+        Map<String, Tempo> resultado = new LinkedHashMap<>();
+        acc.forEach((metrica, a) -> resultado.put(metrica, new Tempo(a[0] / a[1], (long) a[1])));
+        return resultado;
+    }
+
     @Scheduled(initialDelay = 3_000, fixedRate = 60_000)
     public void refreshHoje() {
         Snapshot s = calcularHoje();

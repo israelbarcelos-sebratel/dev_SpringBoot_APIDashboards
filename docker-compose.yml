@@ -77,6 +77,8 @@ services:
     environment:
       SERVER_PORT: "8092"
       BFF_ORIGIN: "${NATIVE_BFF_ORIGIN:-http://localhost:4002}"
+      # Só no native-api (o popup da extensão fala com ele): e-mail de teste do SMTP no startup.
+      MAIL_TEST_TO: "${MAIL_TEST_TO:-}"
       <<: *app-db-env
     depends_on:
       app-db:

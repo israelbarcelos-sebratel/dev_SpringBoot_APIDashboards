@@ -22,7 +22,8 @@ import java.util.Objects;
 
 /**
  * API of the TMA/TME Chrome extension. Every route is behind {@link ExtAuthInterceptor}, so the
- * caller's identity is a Google-verified company e-mail — never a name typed in the browser. The
+ * caller's identity is a Google-verified company e-mail — never a name typed in the browser — and
+ * its atendente comes from the Matrix data ({@link VinculoMatrix}), not from the user's choice. The
  * visibility rule lives here, server-side: a common user only ever gets their own atendente's
  * times; an admin may ask for anyone's.
  */
@@ -36,15 +37,17 @@ public class ExtController {
     private final TemposAtendenteCache temposCache;
     private final TableGroupProperties groupProperties;
     private final TemposHojeJob temposHoje;
+    private final SuporteService suporte;
 
     public ExtController(UsuarioRepository usuarios, SemanticService semantic,
                          TemposAtendenteCache temposCache, TableGroupProperties groupProperties,
-                         TemposHojeJob temposHoje) {
+                         TemposHojeJob temposHoje, SuporteService suporte) {
         this.usuarios = usuarios;
         this.semantic = semantic;
         this.temposCache = temposCache;
         this.groupProperties = groupProperties;
         this.temposHoje = temposHoje;
+        this.suporte = suporte;
     }
 
     @GetMapping("/ext/me")
@@ -52,15 +55,15 @@ public class ExtController {
         return usuarios.find(email);
     }
 
-    /** First login: the user picks their own atendente once. Changing it later is admin-only. */
-    @PostMapping("/ext/me/atendente")
-    public Usuario vincular(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
-                            @RequestBody Map<String, String> body) {
-        String atendente = requireAtendente(body.get("atendente"));
-        if (!usuarios.bindIfAbsent(email, atendente)) {
-            throw new AuthException(409, "Seu usuário já está vinculado. Peça a um administrador para alterar.");
-        }
-        return usuarios.find(email);
+    /**
+     * "Fale com seu administrador": e-mails the development team on the caller's behalf (wrong or
+     * missing binding, access to someone's data…). Body: {@code {mensagem}}.
+     */
+    @PostMapping("/ext/suporte")
+    public Map<String, String> suporte(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
+                                       @RequestBody(required = false) Map<String, String> body) {
+        suporte.pedirAjuste(usuarios.find(email), body == null ? null : body.get("mensagem"));
+        return Map.of("status", "enviado");
     }
 
     @GetMapping("/ext/atendentes")
@@ -80,29 +83,37 @@ public class ExtController {
     public Map<String, Object> widget(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
                                       @RequestParam(required = false) String atendente) {
         Usuario u = usuarios.find(email);
-        String alvo = resolverAlvo(u, atendente);
+        List<String> nomes = resolverAlvo(u, atendente);
         TemposHojeJob.Snapshot hoje = temposHoje.hoje();
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("sistema", groupProperties.groupName());
-        resp.put("atendente", alvo);
+        resp.put("atendente", nomes.get(0));
+        resp.put("nomes", nomes);
         resp.put("role", u.role());
-        resp.put("hoje", hoje.porAtendente().getOrDefault(alvo, Map.of()));
+        resp.put("hoje", temposHoje.somar(hoje, nomes));
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hoje.calculadoEm());
         return resp;
     }
 
-    /** Target atendente for a read: the caller's own by default; someone else's only for admins. */
-    private String resolverAlvo(Usuario u, String atendente) {
-        if (u.atendente() == null) {
-            throw new AuthException(409, "Vincule seu usuário a um atendente no popup da extensão.");
+    /**
+     * Names whose times to show: all of the caller's own by default (one person can have several);
+     * one specific atendente only for admins. Unbound callers get 409, which the extension turns into
+     * the "Fale com seu administrador" prompt.
+     */
+    private List<String> resolverAlvo(Usuario u, String atendente) {
+        boolean admin = UsuarioRepository.ADMIN.equals(u.role());
+        if (atendente != null && !atendente.isBlank() && !u.nomes().contains(atendente)) {
+            if (!admin) {
+                throw new AuthException(403, "Somente administradores podem ver dados de outros atendentes.");
+            }
+            return List.of(atendente);
         }
-        String alvo = (atendente == null || atendente.isBlank()) ? u.atendente() : atendente;
-        if (!alvo.equals(u.atendente()) && !UsuarioRepository.ADMIN.equals(u.role())) {
-            throw new AuthException(403, "Somente administradores podem ver dados de outros atendentes.");
+        if (u.nomes().isEmpty()) {
+            throw new AuthException(409, "Seu e-mail não está vinculado a nenhum atendente. Fale com seu administrador pelo popup da extensão.");
         }
-        return alvo;
+        return u.nomes();
     }
 
     @GetMapping("/ext/usuarios")
@@ -120,7 +131,9 @@ public class ExtController {
             throw new IllegalArgumentException("Informe o e-mail.");
         }
         String role = UsuarioRepository.ADMIN.equals(body.get("role")) ? UsuarioRepository.ADMIN : UsuarioRepository.USER;
-        usuarios.upsert(alvo, requireAtendente(body.get("atendente")), role);
+        // Atendente vazio = volta ao vínculo automático pela Matrix (só define o papel).
+        String atendente = body.get("atendente");
+        usuarios.upsert(alvo, atendente == null || atendente.isBlank() ? null : requireAtendente(atendente), role);
         return usuarios.find(alvo);
     }
 
@@ -139,7 +152,7 @@ public class ExtController {
 
     /**
      * Full list from the tempos cache: /por/atendente caps its distribution at the top 100 and lumps
-     * the rest into "(outros)", which would leave part of the team unable to bind. Falls back to that
+     * the rest into "(outros)", which would leave part of the team out of the admin lists. Falls back to that
      * capped list only while the cache is still empty (first minute after deploy).
      */
     @SuppressWarnings("unchecked")

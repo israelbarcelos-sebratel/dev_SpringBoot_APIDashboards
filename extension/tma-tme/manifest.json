@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Sebratel - TMA/TME Atendimento",
+  "version": "0.7.0",
+  "description": "Widget flutuante com TMA e TME por atendente (Native e Matrix), com login Google e papéis de usuário comum e administrador.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAobMJda94F8SafCC0OSfdmlu980k6HwFTOiYeaxE5f80ZK3TrIrfIY4mWeLYcLaWJ0gZMOWpbdxtjXooec6TQEfWDeWg3v4KfZSxfbDKS3xg7CnjxFNQvsJ9mVUu6tghgKy5qDgIle6kn6Jv7BiViJRnOAKq4u8ROxcUYpg295EkIIuxcHTF83uKyN+g9PIe+eKsIZEHIq6cOEOMsK8IMZBWbx8Jd5kZ84C7H9ApHNJcXR/AQNfaES5n6JxHEkugmNNvm1sMjPbNG4UGtr15E16+3EfFRuX3u7YPbvysRWmOBN0D2eW16dsnLsW8titqonsmuOwAs6rRa6OMK87nmYwIDAQAB",
+  "oauth2": {
+    "client_id": "243355917213-oa2b664bbmlskjkb9losafj6a8rsbtb2.apps.googleusercontent.com",
+    "scopes": [
+      "openid",
+      "email",
+      "profile"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TMA/TME Sebratel",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "permissions": [
+    "storage",
+    "identity"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "exclude_matches": [
+        "*://*/*.pdf"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "widget.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

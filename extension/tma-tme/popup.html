@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>TMA/TME Sebratel</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" />
+  <style>
+    /* Design system Sebratel — tokens do DHO (dho/frontend/src/styles/variables.css). Tema claro único. */
+    :root {
+      color-scheme: light;
+      --primary-color: #ffb000;
+      --primary-hover: #e09e00;
+      --primary-contrast: #111111;
+      --primary-soft: #fff3d6;
+      --bg-color: #f5f1e8;
+      --card-bg: #ffffff;
+      --surface-2: #faf7ef;
+      --text-color: #2a2a28;
+      --text-primary: #111111;
+      --text-secondary: #5e5b50;
+      --border-color: #e0dacb;
+      --border-subtle: #ede8db;
+      --success-text: #0f7a37;
+      --success-subtle-bg: #e4f5ea;
+      --warning-bg: #fff4d6;
+      --warning-text: #8a5a00;
+      --error-color: #dc2626;
+      --error-subtle-bg: #fce9e9;
+      --bg-hover: #efeadd;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-pill: 9999px;
+      --shadow-sm: 0 1px 2px rgba(40, 33, 20, 0.06), 0 1px 3px rgba(40, 33, 20, 0.1);
+      --focus-ring: 0 0 0 3px color-mix(in srgb, var(--primary-color) 55%, transparent);
+      --overlay-hover: color-mix(in srgb, var(--text-color) 6%, transparent);
+      --overlay-primary-hover: color-mix(in srgb, var(--primary-color) 12%, transparent);
+      --ease: cubic-bezier(0.2, 0, 0, 1);
+    }
+    * { box-sizing: border-box; }
+    body {
+      width: 320px;
+      margin: 0;
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+      color: var(--text-color);
+      background: var(--bg-color);
+      -webkit-font-smoothing: antialiased;
+    }
+    .masthead {
+      background: var(--primary-color);
+      color: var(--primary-contrast);
+      padding: 14px 16px;
+      font-size: 15px;
+    }
+    .masthead b { font-weight: 700; letter-spacing: 0.01em; }
+    .masthead span { opacity: 0.72; }
+    main { padding: 14px; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .section-marker {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 14px; font-weight: 700; color: var(--text-primary);
+      margin: 0 0 10px;
+    }
+    .section-marker::before {
+      content: ""; width: 4px; height: 14px; border-radius: 2px; background: var(--primary-color);
+    }
+    p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.5; overflow-wrap: break-word; }
+    .muted { color: var(--text-secondary); font-size: 12.5px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); margin: 0 0 6px; }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font: inherit; font-size: 14px;
+      color: var(--text-color);
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: border-color 200ms var(--ease), box-shadow 200ms var(--ease);
+    }
+    textarea { min-height: 84px; resize: vertical; }
+    input::placeholder, textarea::placeholder { color: var(--text-secondary); opacity: 0.7; }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary-color); box-shadow: var(--focus-ring); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 100%;
+      padding: 10px 16px;
+      margin-bottom: 8px;
+      font: inherit; font-size: 14px; font-weight: 500;
+      border: none; border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background-color 200ms var(--ease), box-shadow 200ms var(--ease), transform 200ms var(--ease);
+    }
+    .btn:focus-visible { box-shadow: var(--focus-ring); outline: none; }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-primary { background: var(--primary-color); color: var(--primary-contrast); }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); box-shadow: var(--shadow-sm); }
+    .btn-secondary { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); }
+    .btn-secondary:hover:not(:disabled) { background: var(--overlay-primary-hover); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); margin-bottom: 0; }
+    .btn-ghost:hover:not(:disabled) { background: var(--overlay-hover); }
+    .who-email { font-weight: 700; color: var(--text-primary); word-break: break-all; margin-bottom: 6px; }
+    .fields { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .fields td { padding: 5px 0; vertical-align: top; }
+    .fields td:first-child { color: var(--text-secondary); width: 84px; }
+    .fields td:last-child { color: var(--text-primary); font-weight: 600; }
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 10px; border-radius: var(--radius-pill);
+      font-size: 11px; font-weight: 600; margin: 2px 4px 0 0;
+    }
+    .badge-admin { background: var(--primary-soft); color: var(--warning-text); }
+    .badge-user { background: var(--bg-hover); color: var(--text-secondary); }
+    .badge-auto { background: var(--success-subtle-bg); color: var(--success-text); }
+    .badge-manual { background: var(--warning-bg); color: var(--warning-text); }
+    .notice {
+      padding: 10px 12px; border-radius: var(--radius-md);
+      background: var(--warning-bg); color: var(--warning-text);
+      font-size: 13px; line-height: 1.45; margin-bottom: 12px;
+    }
+    .msg { font-size: 12.5px; min-height: 0; margin: 0 0 10px; padding: 0; border-radius: var(--radius-sm); }
+    .msg:not(:empty) { padding: 8px 10px; }
+    .msg.error { background: var(--error-subtle-bg); color: var(--error-color); }
+    .msg.ok { background: var(--success-subtle-bg); color: var(--success-text); }
+    .view { display: none; }
+    .footer-actions { display: flex; justify-content: center; }
+    details summary {
+      cursor: pointer; list-style: none;
+      font-size: 13.5px; font-weight: 600; color: var(--text-primary);
+    }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::after { content: " ›"; color: var(--text-secondary); }
+    details[open] summary { margin-bottom: 10px; }
+    details[open] summary::after { content: " ⌄"; }
+  </style>
+</head>
+<body>
+  <div class="masthead"><b>Sebratel</b><span> · TMA/TME</span></div>
+
+  <main>
+    <div id="msg" class="msg"></div>
+
+    <div id="view-loading" class="view"><div class="card"><p class="muted">Carregando…</p></div></div>
+
+    <div id="view-login" class="view">
+      <div class="card">
+        <div class="section-marker">Entrar</div>
+        <p>Use sua conta Google <b>@sebratel.com.br</b>. Seu atendente é reconhecido automaticamente pelo seu e-mail.</p>
+        <button id="login-btn" class="btn btn-primary">Entrar com Google</button>
+      </div>
+    </div>
+
+    <div id="view-main" class="view">
+      <div class="card">
+        <div class="who-email" id="who-email"></div>
+        <table class="fields">
+          <tr><td>Atendente</td><td id="who-nomes"></td></tr>
+          <tr><td>Papel</td><td id="who-role"></td></tr>
+        </table>
+        <div id="who-unbound" class="notice" style="display:none; margin: 10px 0 0">
+          Seu e-mail não foi encontrado nos atendimentos da Matrix, então o widget ainda não tem dados para mostrar.
+          Use o botão abaixo para pedir o vínculo ao administrador.
+        </div>
+      </div>
+
+      <div class="card" id="support-card">
+        <details id="support-details">
+          <summary id="support-summary">Precisa de ajuste? Fale com seu administrador</summary>
+          <label for="support-text">Mensagem</label>
+          <textarea id="support-text" maxlength="2000" placeholder="Ex.: meu nome não aparece / o nome está errado."></textarea>
+          <button id="support-btn" class="btn btn-primary">Fale com seu administrador</button>
+          <p class="muted" style="margin:0">O pedido vai por e-mail para a equipe de desenvolvimento, que responde para você.</p>
+        </details>
+      </div>
+
+      <div class="card" id="admin-area" style="display:none">
+        <div class="section-marker">Ver dados de</div>
+        <select id="viewing-agent"></select>
+
+        <div class="section-marker" style="margin-top:6px">Gerenciar usuários</div>
+        <label for="mg-email">E-mail</label>
+        <input id="mg-email" type="email" placeholder="nome@sebratel.com.br" />
+        <label for="mg-atendente">Atendente</label>
+        <select id="mg-atendente"></select>
+        <label for="mg-role">Papel</label>
+        <select id="mg-role">
+          <option value="user">Usuário comum</option>
+          <option value="admin">Administrador</option>
+        </select>
+        <button id="mg-save" class="btn btn-secondary">Salvar usuário</button>
+      </div>
+
+      <button id="show-btn" class="btn btn-secondary">Reexibir widget</button>
+      <div class="footer-actions"><button id="logout-btn" class="btn btn-ghost">Sair</button></div>
+    </div>
+  </main>
+
+  <script src="api.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

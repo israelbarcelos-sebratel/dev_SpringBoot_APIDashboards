@@ -8,6 +8,8 @@
 #   - APP_DB_PASSWORD é obrigatória: senha do banco próprio da aplicação (app-db), criado vazio no
 #     primeiro deploy (volume app-db-data). As tabelas são criadas pelas APIs no startup. Não troque
 #     a senha depois do primeiro deploy — o MariaDB só a lê ao inicializar um volume novo.
+#   - MAIL_USERNAME/MAIL_PASSWORD: conta SMTP (a mesma do DHO) do "Fale com seu administrador" da
+#     extensão. MAIL_TEST_TO (opcional) envia um e-mail de teste no startup — deixe vazio depois.
 
 x-app-db-env: &app-db-env
   APP_DB_HOST: app-db
@@ -15,6 +17,14 @@ x-app-db-env: &app-db-env
   APP_DB_NAME: "${APP_DB_NAME:-sebratel_app}"
   APP_DB_USER: "${APP_DB_USER:-sebratel_app}"
   APP_DB_PASSWORD: "${APP_DB_PASSWORD:?defina APP_DB_PASSWORD}"
+
+x-mail-env: &mail-env
+  MAIL_HOST: "${MAIL_HOST:-smtp.gmail.com}"
+  MAIL_PORT: "${MAIL_PORT:-587}"
+  MAIL_USERNAME: "${MAIL_USERNAME:-}"
+  MAIL_PASSWORD: "${MAIL_PASSWORD:-}"
+  SUPPORT_EMAIL: "${SUPPORT_EMAIL:-desenvolvimento@sebratel.com.br}"
+  MAIL_TEST_TO: "${MAIL_TEST_TO:-}"
 
 services:
   app-db:
@@ -54,7 +64,7 @@ services:
       DB_NAME: "${DB_NAME}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
-      <<: *app-db-env
+      <<: [*app-db-env, *mail-env]
       ADMIN_EMAILS: "${ADMIN_EMAILS:-}"
     depends_on:
       app-db:
@@ -80,7 +90,7 @@ services:
       DB_NAME: "${DB_NAME}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
-      <<: *app-db-env
+      <<: [*app-db-env, *mail-env]
       ADMIN_EMAILS: "${ADMIN_EMAILS:-}"
     depends_on:
       app-db:

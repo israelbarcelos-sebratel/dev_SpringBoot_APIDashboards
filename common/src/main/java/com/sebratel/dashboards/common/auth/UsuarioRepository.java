@@ -14,11 +14,16 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * The e-mail → atendente → role binding for the Chrome extension ({@code usuarios_extensao}, see
- * {@code app-schema.sql}), stored in the app's own database — see {@link DataSourcesConfig}.
+ * Who a Google-verified e-mail is in the Chrome extension: which atendente name(s) its times come
+ * from and its role.
+ *
+ * <p>The binding is automatic, from the Matrix data ({@link VinculoMatrix}) — nobody picks their own
+ * name. An admin can override it for the exceptions (someone who doesn't show up in Matrix, a wrong
+ * e-mail there): {@code usuarios_extensao.manual = 1} with an explicit {@code atendente}. The same
+ * table holds roles ({@code app-schema.sql}, app database — see {@link DataSourcesConfig}).
  *
  * <p>{@code app.admin-emails} (ADMIN_EMAILS) bootstraps the first admins: those e-mails are always
- * admin regardless of the table, so someone can manage the bindings before any row says "admin".
+ * admin regardless of the table, so someone can manage users before any row says "admin".
  */
 @Component
 public class UsuarioRepository {
@@ -26,55 +31,72 @@ public class UsuarioRepository {
     public static final String ADMIN = "admin";
     public static final String USER = "user";
 
+    /** How the atendente names were found: from Matrix, set by an admin, or not found at all. */
+    public static final String VINCULO_MATRIX = "matrix";
+    public static final String VINCULO_MANUAL = "manual";
+
     private final JdbcTemplate db;
+    private final VinculoMatrix vinculoMatrix;
     private final Set<String> bootstrapAdmins;
 
     public UsuarioRepository(@Qualifier(DataSourcesConfig.APP) JdbcTemplate db,
+                             VinculoMatrix vinculoMatrix,
                              @Value("${app.admin-emails:}") String adminEmails) {
         this.db = db;
+        this.vinculoMatrix = vinculoMatrix;
         this.bootstrapAdmins = Arrays.stream(adminEmails.split(","))
                 .map(s -> s.trim().toLowerCase(Locale.ROOT))
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
     }
 
-    public record Usuario(String email, String atendente, String role) {
+    /**
+     * @param atendente main name (shown in the UI), null when unbound
+     * @param nomes     every name whose times count for this user (one person can have several)
+     * @param vinculo   {@link #VINCULO_MATRIX}, {@link #VINCULO_MANUAL} or null (unbound)
+     */
+    public record Usuario(String email, String atendente, List<String> nomes, String role, String vinculo) {
     }
 
-    /** Always returns a user: unknown e-mails come back unbound, as "user" (or "admin" if bootstrapped). */
+    private record Linha(String atendente, String role, boolean manual) {
+    }
+
+    /** Always returns a user: unknown e-mails come back as "user" (or "admin" if bootstrapped). */
     public Usuario find(String email) {
-        Optional<Usuario> row = db.query(
-                "SELECT email, atendente, role FROM usuarios_extensao WHERE email = ?",
-                (rs, i) -> new Usuario(rs.getString("email"), rs.getString("atendente"), rs.getString("role")),
-                email).stream().findFirst();
-        String atendente = row.map(Usuario::atendente).orElse(null);
-        String role = bootstrapAdmins.contains(email) ? ADMIN : row.map(Usuario::role).orElse(USER);
-        return new Usuario(email, atendente, role);
+        String chave = email.toLowerCase(Locale.ROOT);
+        Optional<Linha> row = db.query(
+                "SELECT atendente, role, manual FROM usuarios_extensao WHERE email = ?",
+                (rs, i) -> new Linha(rs.getString("atendente"), rs.getString("role"), rs.getBoolean("manual")),
+                chave).stream().findFirst();
+
+        List<String> nomes;
+        String vinculo;
+        if (row.isPresent() && row.get().manual() && row.get().atendente() != null) {
+            nomes = List.of(row.get().atendente());
+            vinculo = VINCULO_MANUAL;
+        } else {
+            nomes = vinculoMatrix.nomes(chave);
+            vinculo = nomes.isEmpty() ? null : VINCULO_MATRIX;
+        }
+        String role = bootstrapAdmins.contains(chave) ? ADMIN : row.map(Linha::role).orElse(USER);
+        return new Usuario(chave, nomes.isEmpty() ? null : nomes.get(0), nomes, role, vinculo);
     }
 
+    /** Everyone with a row (a role or a manual binding), resolved like {@link #find}. */
     public List<Usuario> listAll() {
-        return db.query(
-                "SELECT email, atendente, role FROM usuarios_extensao ORDER BY email",
-                (rs, i) -> {
-                    String email = rs.getString("email");
-                    String role = bootstrapAdmins.contains(email) ? ADMIN : rs.getString("role");
-                    return new Usuario(email, rs.getString("atendente"), role);
-                });
+        return db.queryForList("SELECT email FROM usuarios_extensao ORDER BY email", String.class)
+                .stream().map(this::find).toList();
     }
 
-    /** First-login self-binding; returns false if this e-mail is already bound (only an admin can change it). */
-    public boolean bindIfAbsent(String email, String atendente) {
-        int rows = db.update(
-                "INSERT IGNORE INTO usuarios_extensao (email, atendente, role, atualizado_em) VALUES (?, ?, 'user', NOW())",
-                email, atendente);
-        return rows == 1;
-    }
-
-    /** Admin-only upsert of any binding/role. */
+    /**
+     * Admin-only. {@code atendente} null keeps (or returns to) the automatic Matrix binding and only
+     * sets the role; a name makes it a manual override.
+     */
     public void upsert(String email, String atendente, String role) {
         db.update("""
-                INSERT INTO usuarios_extensao (email, atendente, role, atualizado_em) VALUES (?, ?, ?, NOW())
-                ON DUPLICATE KEY UPDATE atendente = VALUES(atendente), role = VALUES(role), atualizado_em = NOW()
-                """, email, atendente, role);
+                INSERT INTO usuarios_extensao (email, atendente, role, manual, atualizado_em) VALUES (?, ?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE atendente = VALUES(atendente), role = VALUES(role),
+                                        manual = VALUES(manual), atualizado_em = NOW()
+                """, email.toLowerCase(Locale.ROOT), atendente, role, atendente != null);
     }
 }

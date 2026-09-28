@@ -11,6 +11,19 @@ spring:
       maximum-pool-size: 10
       connection-timeout: 5000
 
+  # "Fale com seu administrador" da extensão (SuporteService): SMTP da mesma conta usada pelo DHO.
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+
 app:
   db-schema: ${DB_NAME:API_WebDeveloper}
   # Login SSO da extensão de Chrome (ver ExtController). O client id é público, não é segredo.
@@ -18,6 +31,10 @@ app:
   allowed-email-domain: ${ALLOWED_EMAIL_DOMAIN:sebratel.com.br}
   # E-mails sempre admin (bootstrap), separados por vírgula; os demais papéis ficam em usuarios_extensao.
   admin-emails: ${ADMIN_EMAILS:}
+  suporte:
+    email: ${SUPPORT_EMAIL:desenvolvimento@sebratel.com.br}
+    # Se definido, envia um e-mail de teste no startup (validar o SMTP de um deploy).
+    teste-para: ${MAIL_TEST_TO:}
   cors-allowed-origin: ${BFF_ORIGIN:http://localhost:4001}
   # /ext/widget (ver WidgetProperties/TemposHojeJob): coluna que define "hoje" e as métricas exibidas.
   # Em db_matrix as datas são varchar 'YYYY-MM-DD HH:MM:SS' (a tabela não tem coluna DATETIME), e não
