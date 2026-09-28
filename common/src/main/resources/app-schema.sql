@@ -42,3 +42,6 @@ CREATE TABLE IF NOT EXISTS cliente_alias (
 -- usuário. Essas linhas antigas ficam com manual = 0 (o atendente escolhido deixa de valer).
 ALTER TABLE usuarios_extensao MODIFY atendente VARCHAR(255) NULL;
 ALTER TABLE usuarios_extensao ADD COLUMN IF NOT EXISTS manual TINYINT(1) NOT NULL DEFAULT 0;
+-- Quem tem o e-mail em mais de um cadastro (trocou de área) escolhe qual usar; guardamos a última
+-- escolha (NULL = todos os cadastros somados). Ver UsuarioRepository.salvarPreferido.
+ALTER TABLE usuarios_extensao ADD COLUMN IF NOT EXISTS preferido VARCHAR(255) NULL;

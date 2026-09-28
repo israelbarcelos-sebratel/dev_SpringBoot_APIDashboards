@@ -54,19 +54,23 @@ public class UsuarioRepository {
      * @param atendente main name (shown in the UI), null when unbound
      * @param nomes     every name whose times count for this user (one person can have several)
      * @param vinculo   {@link #VINCULO_MATRIX}, {@link #VINCULO_MANUAL} or null (unbound)
+     * @param preferido the one name this user chose to use when {@code nomes} has several (someone
+     *                  who changed areas has one cadastro per area); null = all of them combined
      */
-    public record Usuario(String email, String atendente, List<String> nomes, String role, String vinculo) {
+    public record Usuario(String email, String atendente, List<String> nomes, String role, String vinculo,
+                          String preferido) {
     }
 
-    private record Linha(String atendente, String role, boolean manual) {
+    private record Linha(String atendente, String role, boolean manual, String preferido) {
     }
 
     /** Always returns a user: unknown e-mails come back as "user" (or "admin" if bootstrapped). */
     public Usuario find(String email) {
         String chave = email.toLowerCase(Locale.ROOT);
         Optional<Linha> row = db.query(
-                "SELECT atendente, role, manual FROM usuarios_extensao WHERE email = ?",
-                (rs, i) -> new Linha(rs.getString("atendente"), rs.getString("role"), rs.getBoolean("manual")),
+                "SELECT atendente, role, manual, preferido FROM usuarios_extensao WHERE email = ?",
+                (rs, i) -> new Linha(rs.getString("atendente"), rs.getString("role"), rs.getBoolean("manual"),
+                        rs.getString("preferido")),
                 chave).stream().findFirst();
 
         List<String> nomes;
@@ -79,7 +83,21 @@ public class UsuarioRepository {
             vinculo = nomes.isEmpty() ? null : VINCULO_MATRIX;
         }
         String role = bootstrapAdmins.contains(chave) ? ADMIN : row.map(Linha::role).orElse(USER);
-        return new Usuario(chave, nomes.isEmpty() ? null : nomes.get(0), nomes, role, vinculo);
+        // A escolha só vale enquanto o nome ainda estiver entre os cadastros do e-mail.
+        String preferido = row.map(Linha::preferido).filter(nomes::contains).orElse(null);
+        String principal = preferido != null ? preferido : nomes.isEmpty() ? null : nomes.get(0);
+        return new Usuario(chave, principal, nomes, role, vinculo, preferido);
+    }
+
+    /**
+     * The user's own choice among their cadastros (null = all combined), kept so they don't have to
+     * pick again at every login. Only touches {@code preferido}: role and binding stay as they are.
+     */
+    public void salvarPreferido(String email, String preferido) {
+        db.update("""
+                INSERT INTO usuarios_extensao (email, role, manual, preferido, atualizado_em) VALUES (?, ?, 0, ?, NOW())
+                ON DUPLICATE KEY UPDATE preferido = VALUES(preferido), atualizado_em = NOW()
+                """, email.toLowerCase(Locale.ROOT), USER, preferido);
     }
 
     /** Everyone with a row (a role or a manual binding), resolved like {@link #find}. */

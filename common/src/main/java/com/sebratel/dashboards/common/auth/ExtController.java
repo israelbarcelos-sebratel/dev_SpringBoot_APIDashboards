@@ -66,6 +66,25 @@ public class ExtController {
     }
 
     /**
+     * Which of the caller's own cadastros to use (someone who changed areas has one per area). Body
+     * {@code {atendente}}: one of {@code /ext/me}'s {@code nomes}, or empty for all combined. Saved in
+     * the app database, so the choice survives logout and other computers.
+     */
+    @PutMapping("/ext/me/preferido")
+    public Usuario salvarPreferido(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
+                                   @RequestBody(required = false) Map<String, String> body) {
+        Usuario u = usuarios.find(email);
+        String escolhido = body == null ? null : body.get("atendente");
+        if (escolhido == null || escolhido.isBlank()) {
+            escolhido = null;
+        } else if (!u.nomes().contains(escolhido)) {
+            throw new AuthException(403, "Esse cadastro não está vinculado ao seu e-mail.");
+        }
+        usuarios.salvarPreferido(email, escolhido);
+        return usuarios.find(email);
+    }
+
+    /**
      * "Fale com seu administrador": e-mails the development team on the caller's behalf (wrong or
      * missing binding, access to someone's data…). Body: {@code {mensagem}}.
      */
@@ -176,14 +195,14 @@ public class ExtController {
     }
 
     /**
-     * Names whose times to show: all of the caller's own by default (one person can have several);
-     * one specific atendente only for admins. Unbound callers get 409, which the extension turns into
-     * the "Fale com seu administrador" prompt.
+     * Names whose times to show. By default the caller's own: the cadastro they chose
+     * ({@code preferido}), or all of them combined if they never chose. A specific name is allowed if it
+     * is one of the caller's own, or for admins any atendente. Unbound callers get 409, which the
+     * extension turns into the "Fale com seu administrador" prompt.
      */
     private List<String> resolverAlvo(Usuario u, String atendente) {
-        boolean admin = UsuarioRepository.ADMIN.equals(u.role());
-        if (atendente != null && !atendente.isBlank() && !u.nomes().contains(atendente)) {
-            if (!admin) {
+        if (atendente != null && !atendente.isBlank()) {
+            if (!u.nomes().contains(atendente) && !UsuarioRepository.ADMIN.equals(u.role())) {
                 throw new AuthException(403, "Somente administradores podem ver dados de outros atendentes.");
             }
             return List.of(atendente);
@@ -191,7 +210,7 @@ public class ExtController {
         if (u.nomes().isEmpty()) {
             throw new AuthException(409, "Seu e-mail não está vinculado a nenhum atendente. Fale com seu administrador pelo popup da extensão.");
         }
-        return u.nomes();
+        return u.preferido() != null ? List.of(u.preferido()) : u.nomes();
     }
 
     @GetMapping("/ext/usuarios")

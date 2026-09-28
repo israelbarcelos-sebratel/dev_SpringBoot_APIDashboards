@@ -111,7 +111,7 @@ public class SuporteService implements ApplicationRunner {
                             + lead("<span style=\"font-size:13px;\">Se você recebeu esta mensagem, o SMTP está "
                                     + "configurado corretamente.</span>"));
             // Exemplo de como chega um pedido real (sem vínculo), para revisar o layout.
-            Usuario exemplo = new Usuario(testePara, null, List.of(), UsuarioRepository.USER, null);
+            Usuario exemplo = new Usuario(testePara, null, List.of(), UsuarioRepository.USER, null, null);
             enviar(testePara, testePara, "[TMA/TME] Exemplo — Ajuste de usuário — " + testePara,
                     corpoPedido(exemplo, "Meu nome não aparece no widget.\nPodem vincular meu e-mail ao meu usuário da Matrix?"));
             log.info("E-mails de teste enviados para {}.", testePara);
