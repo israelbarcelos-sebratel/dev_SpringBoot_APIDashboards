@@ -10,8 +10,37 @@
 #
 # Para subir só uma das APIs:
 #   docker compose up -d --build matrix-api
+#
+# Dois bancos: os dados da Native/Matrix são LIDOS do MariaDB compartilhado (DB_*); o que a
+# aplicação ESCREVE (usuários da extensão e cache de tempos) fica no app-db abaixo, com volume
+# próprio. As tabelas do app-db são criadas pelas APIs no startup (common/.../app-schema.sql).
+
+x-app-db-env: &app-db-env
+  APP_DB_HOST: app-db
+  APP_DB_PORT: "3306"
+  APP_DB_NAME: "${APP_DB_NAME:-sebratel_app}"
+  APP_DB_USER: "${APP_DB_USER:-sebratel_app}"
+  APP_DB_PASSWORD: "${APP_DB_PASSWORD:?defina APP_DB_PASSWORD no .env}"
 
 services:
+  app-db:
+    image: mariadb:11.4
+    container_name: apis-app-db
+    environment:
+      MARIADB_DATABASE: "${APP_DB_NAME:-sebratel_app}"
+      MARIADB_USER: "${APP_DB_USER:-sebratel_app}"
+      MARIADB_PASSWORD: "${APP_DB_PASSWORD:?defina APP_DB_PASSWORD no .env}"
+      MARIADB_RANDOM_ROOT_PASSWORD: "yes"
+      TZ: America/Sao_Paulo
+    volumes:
+      - app-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   matrix-api:
     build:
       context: .
@@ -27,6 +56,10 @@ services:
     environment:
       SERVER_PORT: "8091"
       BFF_ORIGIN: "${MATRIX_BFF_ORIGIN:-http://localhost:4001}"
+      <<: *app-db-env
+    depends_on:
+      app-db:
+        condition: service_healthy
     restart: unless-stopped
 
   native-api:
@@ -44,4 +77,11 @@ services:
     environment:
       SERVER_PORT: "8092"
       BFF_ORIGIN: "${NATIVE_BFF_ORIGIN:-http://localhost:4002}"
+      <<: *app-db-env
+    depends_on:
+      app-db:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  app-db-data:
