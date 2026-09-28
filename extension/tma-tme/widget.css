@@ -209,6 +209,36 @@
   color: var(--stw-text-primary);
 }
 
+/* Referência do TMEA ("setor Financeiro 7:30") ao lado do rótulo. */
+#sebratel-tma-widget .metric-sub {
+  margin-left: 5px;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--stw-text-secondary);
+}
+
+/* Contagem de atendimentos (hoje · mês), no pé de cada seção. */
+#sebratel-tma-widget .count-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--stw-primary-soft);
+}
+#sebratel-tma-widget .count-row:empty {
+  display: none;
+}
+#sebratel-tma-widget .count-value {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--stw-text-primary);
+  white-space: nowrap;
+}
+
 #sebratel-tma-widget .metric-value.empty { color: var(--stw-no-data); }
 #sebratel-tma-widget .metric-value.ok { color: var(--stw-success); }
 #sebratel-tma-widget .metric-value.warn { color: var(--stw-warning); }

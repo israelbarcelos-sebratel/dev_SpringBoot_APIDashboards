@@ -10,9 +10,9 @@ const SISTEMAS = [
   { chave: "native", titulo: "Native", base: () => SebratelApi.NATIVE },
   { chave: "matrix", titulo: "Matrix", base: () => SebratelApi.MATRIX },
 ];
-const ROTULOS = { tma: "TMA", tme: "TME", tmic: "TMIC", tmia: "TMIA" };
-// Mesmo SLA do widget: só TMA/TME têm meta.
-const META = { tma: SebratelApi.SLA.tmaSeconds, tme: SebratelApi.SLA.tmeSeconds };
+const ROTULOS = { tma: "TMA", tme: "TME", tmic: "TMIC", tmia: "TMIA", tmea: "TMEA" };
+// Rótulo da coluna por atendimento (o TMEA de uma linha é o intervalo antes dela).
+const ROTULOS_COLUNA = { tmea: "Intervalo antes (TMEA)" };
 
 /** Dados carregados por sistema + ordenação atual da tabela. */
 const estado = {};
@@ -27,13 +27,19 @@ function fmt(seg) {
   return h ? `${h}:${mmss}` : mmss;
 }
 
-function nivel(metrica, seg) {
-  const meta = META[metrica];
+/**
+ * Limites por sistema vêm do servidor (metricas[].meta): dentro verde, acima vermelho. O TMEA não
+ * tem limite: a média do dia é comparada com a do setor (acima = âmbar); por linha fica neutro.
+ */
+function nivel(m, seg, porLinha = false) {
   if (seg === null || seg === undefined) return "empty";
-  if (!meta) return "";
-  if (seg <= meta) return "ok";
-  if (seg <= meta * 1.2) return "warn";
-  return "bad";
+  if (m.meta) return seg <= m.meta ? "ok" : "bad";
+  if (m.referencia && !porLinha) return seg <= m.referencia.segundosMedios ? "ok" : "warn";
+  return "";
+}
+
+function grupoReferencia(ref) {
+  return ref.setor ? `setor ${ref.setor}` : "operação";
 }
 
 /** "2026-09-28 14:03:21" de hoje vira "14:03:21"; outros valores ficam como vieram. */
@@ -59,7 +65,10 @@ function colunasDaTabela(dados) {
   const variosNomes = new Set(dados.linhas.map((l) => l.atendente)).size > 1;
   if (variosNomes) cols.push({ chave: "atendente", rotulo: "Atendente", tipo: "texto" });
   for (const c of dados.colunas) cols.push({ ...c, tipo: "texto" });
-  for (const m of dados.metricas) cols.push({ chave: m.chave, rotulo: ROTULOS[m.chave] || m.chave.toUpperCase(), tipo: "metrica" });
+  for (const m of dados.metricas) {
+    const rotulo = ROTULOS_COLUNA[m.chave] || ROTULOS[m.chave] || m.chave.toUpperCase();
+    cols.push({ chave: m.chave, rotulo, tipo: "metrica", metrica: m });
+  }
   return cols;
 }
 
@@ -90,6 +99,21 @@ function linhasVisiveis(sis) {
 
 function renderKpis(dados) {
   const box = el("div", { class: "kpis" });
+  const a = dados.atendimentos;
+  if (a) {
+    box.append(
+      el(
+        "div",
+        { class: "kpi kpi-total" },
+        el("div", { class: "kpi-label", text: "ATENDIMENTOS" }),
+        el("div", { class: "kpi-value", text: `${a.hoje.toLocaleString("pt-BR")} hoje` }),
+        el("div", {
+          class: "kpi-formula",
+          text: `${a.mes === null || a.mes === undefined ? "…" : a.mes.toLocaleString("pt-BR")} do dia 1º do mês até agora`,
+        })
+      )
+    );
+  }
   for (const m of dados.metricas) {
     const rotulo = ROTULOS[m.chave] || m.chave.toUpperCase();
     const n = m.amostras;
@@ -99,18 +123,39 @@ function renderKpis(dados) {
         "div",
         { class: "kpi" },
         el("div", { class: "kpi-label", text: `${rotulo} · média de hoje` }),
-        el("div", { class: `kpi-value ${nivel(m.chave, m.segundosMedios)}`, text: fmt(m.segundosMedios) }),
+        el("div", { class: `kpi-value ${nivel(m, m.segundosMedios)}`, text: excedido(m, m.segundosMedios) }),
         el("div", { class: "kpi-formula", text: m.formula || "" }),
-        el("div", {
-          class: "kpi-n",
-          text: `${n} atendimento(s) na média${total > n ? ` · ${total - n} sem esse tempo (não contam)` : ""}${
-            META[m.chave] ? ` · meta ${fmt(META[m.chave])}` : ""
-          }`,
-        })
+        el("div", { class: "kpi-n", text: textoAmostras(m, n, total) })
       )
     );
   }
   return box;
+}
+
+/** Valor com "▲" e quanto passou quando excede o limite: "▲ 6:12 (+1:12)". */
+function excedido(m, seg) {
+  if (m.meta && seg !== null && seg !== undefined && seg > m.meta) {
+    return `▲ ${fmt(seg)} (+${fmt(seg - m.meta)})`;
+  }
+  return fmt(seg);
+}
+
+function textoAmostras(m, n, total) {
+  if (m.chave === "tmea") {
+    let t = `${n} intervalo(s) entre atendimentos hoje`;
+    if (m.referencia) {
+      const ref = m.referencia;
+      t += ` · média do ${grupoReferencia(ref)}: ${fmt(ref.segundosMedios)} (${ref.atendentes} colega(s), últimos ${ref.dias} dias)`;
+      if (m.segundosMedios !== null && m.segundosMedios !== undefined) {
+        const dif = Math.round(m.segundosMedios - ref.segundosMedios);
+        t += dif <= 0 ? ` · ${fmt(-dif)} abaixo` : ` · ${fmt(dif)} acima`;
+      }
+    }
+    return t;
+  }
+  return `${n} atendimento(s) na média${total > n ? ` · ${total - n} sem esse tempo (não contam)` : ""}${
+    m.meta ? ` · limite ${fmt(m.meta)}` : ""
+  }`;
 }
 
 function renderTabela(sis) {
@@ -137,8 +182,15 @@ function renderTabela(sis) {
     for (const c of cols) {
       if (c.tipo === "metrica") {
         const v = l.tempos[c.chave];
-        const td = el("td", { class: `metric ${nivel(c.chave, v)}`, text: fmt(v) });
-        if (v === null || v === undefined) td.title = "Sem esse tempo neste atendimento — não entra na média";
+        const td = el("td", { class: `metric ${nivel(c.metrica, v, true)}`, text: fmt(v) });
+        if (v === null || v === undefined) {
+          td.title =
+            c.chave === "tmea"
+              ? "Primeiro atendimento do dia ou intervalo acima do limite (pausa/almoço) — não entra no TMEA"
+              : "Sem esse tempo neste atendimento — não entra na média";
+        } else if (c.metrica.meta && v > c.metrica.meta) {
+          td.title = `Acima do limite de ${fmt(c.metrica.meta)} (+${fmt(v - c.metrica.meta)})`;
+        }
         tr.append(td);
       } else {
         const bruto = l[c.chave];
@@ -159,7 +211,7 @@ function renderTabela(sis) {
     }
     const vals = linhas.map((l) => l.tempos[c.chave]).filter((v) => v !== null && v !== undefined);
     const media = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    trFoot.append(el("td", { class: `metric ${nivel(c.chave, media)}`, text: fmt(media) }));
+    trFoot.append(el("td", { class: `metric ${nivel(c.metrica, media)}`, text: fmt(media) }));
   });
 
   const wrap = el("div", { class: "table-wrap" });
@@ -198,7 +250,9 @@ function desenharSecao(sis) {
       class: "legend",
       text:
         "Tempos em minutos:segundos. “—” = o atendimento não tem esse tempo (ex.: ainda em andamento) e não entra na média. " +
-        "Cores: verde dentro da meta, âmbar até 20% acima, vermelho acima disso. Clique no título de uma coluna para ordenar.",
+        "TMA/TME: verde dentro do limite de produtividade, vermelho (▲) acima. " +
+        "TMEA: tempo sem atendimento entre um e outro, comparado com a média dos colegas do setor nos últimos 30 dias (verde abaixo, âmbar acima). " +
+        "Clique no título de uma coluna para ordenar.",
     })
   );
 }

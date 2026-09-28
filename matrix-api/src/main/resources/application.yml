@@ -40,6 +40,10 @@ app:
   # Em db_matrix as datas são varchar 'YYYY-MM-DD HH:MM:SS' (a tabela não tem coluna DATETIME), e não
   # há colunas prontas de TMA/TME (tempo_fila vem quase sempre vazio): derivamos das datas.
   #   TMA = assumiu o atendimento -> finalizou;  TME = entrou na fila -> agente assumiu (sem o tempo no bot).
+  # Mesma pessoa, grafias diferentes entre Matrix e Native (ver CorrespondenciaNomes): nomes que
+  # chegam da Native (lista "Ver dados de" do admin) são traduzidos para os da Matrix.
+  vinculo:
+    outro-sistema: { tabela: db_native, coluna: agente, data-coluna: data_hora }
   widget:
     data-coluna: data_entrada
     tempos:
@@ -47,10 +51,12 @@ app:
         inicio: data_atendimento
         fim: data_finalizacao
         formula: Finalização − início do atendimento
+        meta-segundos: 1800   # regra de produtividade Matrix: TMA até 30 min
       tme:
         inicio: data_fila
         fim: data_atendimento
         formula: Início do atendimento − entrada na fila
+        meta-segundos: 45     # TME até 45 s
       # Tempos de interação que a Matrix já calcula ("HH:MM:SS").
       tmic:
         hms: tmic
@@ -58,6 +64,15 @@ app:
       tmia:
         hms: tmia
         formula: Tempo médio de interação do atendente (calculado pela Matrix)
+    # TMEA (tempo médio entre atendimentos). No chat o atendente toca vários atendimentos ao mesmo
+    # tempo e só finaliza horas depois, então não dá para medir a ausência a partir do fim: medimos
+    # de assumir um atendimento até assumir o próximo.
+    tmea:
+      inicio: "UNIX_TIMESTAMP(NULLIF(`data_atendimento`, ''))"
+      fim: "UNIX_TIMESTAMP(NULLIF(`data_atendimento`, ''))"
+      formula: Início do atendimento − início do atendimento anterior (no chat os atendimentos correm em paralelo)
+      max-intervalo-minutos: 60
+      dias-referencia: 30
     # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem CPF/telefone de propósito; o cliente
     # sai só como alias (ClienteAlias — a relação alias -> nome fica na tabela cliente_alias do app-db).
     detalhe:

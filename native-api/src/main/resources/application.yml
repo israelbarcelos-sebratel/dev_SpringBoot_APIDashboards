@@ -37,15 +37,29 @@ app:
     teste-para: ${MAIL_TEST_TO:}
   cors-allowed-origin: ${BFF_ORIGIN:http://localhost:4002}
   # /ext/widget (ver WidgetProperties/TemposHojeJob): coluna que define "hoje" e as métricas exibidas.
+  # Mesma pessoa, grafias diferentes entre Matrix e Native (ver CorrespondenciaNomes): o vínculo por
+  # e-mail dá os nomes da Matrix ("Rafael da Silva - ..."), traduzidos aqui para os da Native.
+  vinculo:
+    outro-sistema: { tabela: db_matrix, coluna: atendente, data-coluna: data_entrada }
   widget:
     data-coluna: data_hora
     tempos:
       tma:
         hms: atendimento
         formula: Duração da conversa com o atendente (coluna atendimento da Native)
+        meta-segundos: 300    # regra de produtividade Native: TMA até 5 min
       tme:
         hms: espera
         formula: Tempo aguardando na fila até ser atendido (coluna espera da Native)
+        meta-segundos: 25     # TME até 25 s
+    # TMEA (tempo médio entre atendimentos): do fim de uma ligação (data_hora + espera + atendimento)
+    # até o atendente atender a próxima (data_hora + espera).
+    tmea:
+      inicio: "UNIX_TIMESTAMP(`data_hora`) + TIME_TO_SEC(`espera`)"
+      fim: "UNIX_TIMESTAMP(`data_hora`) + TIME_TO_SEC(`espera`) + TIME_TO_SEC(`atendimento`)"
+      formula: Início da ligação − fim da ligação anterior
+      max-intervalo-minutos: 60
+      dias-referencia: 30
     # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem telefone/gravação de propósito; o
     # cliente sai só como alias (ClienteAlias — a relação alias -> nome fica em cliente_alias no app-db).
     detalhe:

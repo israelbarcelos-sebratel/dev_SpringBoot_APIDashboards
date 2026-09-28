@@ -8,10 +8,9 @@
     return `${m}:${String(s).padStart(2, "0")}`;
   }
 
+  /** Regra de produtividade: dentro do limite verde, acima dele vermelho (tempo excedido). */
   function levelClass(value, target) {
-    if (value <= target) return "ok";
-    if (value <= target * 1.2) return "warn";
-    return "bad";
+    return value <= target ? "ok" : "bad";
   }
 
   function loadState() {
@@ -67,6 +66,11 @@
             <span class="metric-label">TME</span>
             <span class="metric-value" id="sebratel-native-tme">--:--</span>
           </div>
+          <div class="metric-row">
+            <span class="metric-label">TMEA<span class="metric-sub" id="sebratel-native-tmea-ref"></span></span>
+            <span class="metric-value" id="sebratel-native-tmea">--:--</span>
+          </div>
+          <div class="count-row" id="sebratel-native-count"></div>
           <div class="section-error" id="sebratel-native-error" hidden></div>
         </div>
         <div class="section" id="sebratel-section-matrix">
@@ -87,6 +91,11 @@
             <span class="metric-label">TMIA</span>
             <span class="metric-value" id="sebratel-matrix-tmia">--:--</span>
           </div>
+          <div class="metric-row">
+            <span class="metric-label">TMEA<span class="metric-sub" id="sebratel-matrix-tmea-ref"></span></span>
+            <span class="metric-value" id="sebratel-matrix-tmea">--:--</span>
+          </div>
+          <div class="count-row" id="sebratel-matrix-count"></div>
           <div class="section-error" id="sebratel-matrix-error" hidden></div>
         </div>
       </div>
@@ -163,19 +172,74 @@
     });
   }
 
-  /** m = { hoje, amostras } vindo de /ext/widget (só dados do dia); null/undefined = sem dado. */
-  function setMetric(el, id, m, target) {
+  /**
+   * m = { hoje, amostras, meta } vindo de /ext/widget (só dados do dia); null/undefined = sem dado.
+   * Acima da meta o valor fica vermelho com "▲" e o título diz quanto passou.
+   */
+  function setMetric(el, id, m) {
     const node = el.querySelector(id);
     const seconds = m && typeof m === "object" ? m.hoje : null;
     if (seconds === null || seconds === undefined) {
       node.textContent = "--:--";
       node.className = "metric-value empty";
-      node.title = "Sem atendimentos hoje";
+      node.title = m?.meta ? `Sem atendimentos hoje · limite ${fmt(m.meta)}` : "Sem atendimentos hoje";
+      return;
+    }
+    const meta = m.meta;
+    const excedeu = meta && seconds > meta;
+    node.textContent = excedeu ? `▲ ${fmt(seconds)}` : fmt(seconds);
+    node.className = `metric-value${meta ? " " + levelClass(seconds, meta) : ""}`;
+    node.title =
+      `Média de hoje · ${m.amostras} atendimento(s)` +
+      (meta ? (excedeu ? ` · acima do limite de ${fmt(meta)} (+${fmt(seconds - meta)})` : ` · dentro do limite de ${fmt(meta)}`) : "");
+  }
+
+  /** TMEA comparado com a média do setor: abaixo/igual verde, acima âmbar (é referência, não limite). */
+  function setTmea(el, sis, m) {
+    const node = el.querySelector(`#sebratel-${sis}-tmea`);
+    const refEl = el.querySelector(`#sebratel-${sis}-tmea-ref`);
+    const ref = m?.referencia;
+    const grupo = ref ? (ref.setor ? `setor ${ref.setor}` : "operação") : null;
+    refEl.textContent = ref ? ` ${ref.setor ? "setor" : "operação"} ${fmt(Math.round(ref.segundosMedios))}` : "";
+    const seconds = m ? m.hoje : null;
+    if (seconds === null || seconds === undefined) {
+      node.textContent = "--:--";
+      node.className = "metric-value empty";
+      node.title = "Tempo médio entre atendimentos: ainda sem dois atendimentos hoje";
       return;
     }
     node.textContent = fmt(seconds);
-    node.className = `metric-value${target ? " " + levelClass(seconds, target) : ""}`;
-    node.title = `Média de hoje · ${m.amostras} atendimento(s)`;
+    if (!ref) {
+      node.className = "metric-value";
+      node.title = `Tempo médio entre atendimentos hoje · ${m.amostras} intervalo(s)`;
+      return;
+    }
+    const media = Math.round(ref.segundosMedios);
+    const dif = seconds - media;
+    node.className = `metric-value ${dif <= 0 ? "ok" : "warn"}`;
+    node.title =
+      `Tempo médio entre atendimentos hoje · ${m.amostras} intervalo(s)\n` +
+      `Média de ${ref.atendentes} colega(s) do ${grupo} nos últimos ${ref.dias} dias: ${fmt(media)} ` +
+      `(${dif <= 0 ? "você está " + fmt(-dif) + " abaixo" : "você está " + fmt(dif) + " acima"})`;
+  }
+
+  /** "Atendimentos: 23 hoje · 412 no mês". */
+  function setCount(el, sis, a) {
+    const node = el.querySelector(`#sebratel-${sis}-count`);
+    if (!a) {
+      node.textContent = "";
+      return;
+    }
+    const mes = a.mes === null || a.mes === undefined ? "…" : a.mes.toLocaleString("pt-BR");
+    node.innerHTML = "";
+    const label = document.createElement("span");
+    label.className = "metric-label";
+    label.textContent = "Atendimentos";
+    const val = document.createElement("span");
+    val.className = "count-value";
+    val.textContent = `hoje ${a.hoje.toLocaleString("pt-BR")} · mês ${mes}`;
+    node.title = "Hoje e do dia 1º do mês até agora";
+    node.append(label, val);
   }
 
   /** "2026-09-28 09:13:33" -> "dados até 09:13" (horário do último registro que chegou ao banco). */
@@ -195,24 +259,30 @@
     if (data.native?.available) {
       nativeErrorEl.hidden = true;
       setMeta(el, "#sebratel-native-meta", data.native.ultimoRegistro);
-      setMetric(el, "#sebratel-native-tma", data.native.tma, data.slaTarget.tmaSeconds);
-      setMetric(el, "#sebratel-native-tme", data.native.tme, data.slaTarget.tmeSeconds);
+      setMetric(el, "#sebratel-native-tma", data.native.tma);
+      setMetric(el, "#sebratel-native-tme", data.native.tme);
+      setTmea(el, "native", data.native.tmea);
+      setCount(el, "native", data.native.atendimentos);
     } else {
       nativeErrorEl.hidden = false;
       nativeErrorEl.textContent = data.native?.error || "Indisponível";
       setMeta(el, "#sebratel-native-meta", null);
       setMetric(el, "#sebratel-native-tma", null);
       setMetric(el, "#sebratel-native-tme", null);
+      setTmea(el, "native", null);
+      setCount(el, "native", null);
     }
 
     const matrixErrorEl = el.querySelector("#sebratel-matrix-error");
     if (data.matrix?.available) {
       matrixErrorEl.hidden = true;
       setMeta(el, "#sebratel-matrix-meta", data.matrix.ultimoRegistro);
-      setMetric(el, "#sebratel-matrix-tma", data.matrix.tma, data.slaTarget.tmaSeconds);
-      setMetric(el, "#sebratel-matrix-tme", data.matrix.tme, data.slaTarget.tmeSeconds);
+      setMetric(el, "#sebratel-matrix-tma", data.matrix.tma);
+      setMetric(el, "#sebratel-matrix-tme", data.matrix.tme);
       setMetric(el, "#sebratel-matrix-tmic", data.matrix.tmic);
       setMetric(el, "#sebratel-matrix-tmia", data.matrix.tmia);
+      setTmea(el, "matrix", data.matrix.tmea);
+      setCount(el, "matrix", data.matrix.atendimentos);
     } else {
       matrixErrorEl.hidden = false;
       matrixErrorEl.textContent = data.matrix?.error || "Indisponível";
@@ -221,6 +291,8 @@
       setMetric(el, "#sebratel-matrix-tme", null);
       setMetric(el, "#sebratel-matrix-tmic", null);
       setMetric(el, "#sebratel-matrix-tmia", null);
+      setTmea(el, "matrix", null);
+      setCount(el, "matrix", null);
     }
 
     agentEl.textContent = (data.viewingOther ? `${data.agent} (admin)` : data.agent) || "--";
@@ -272,7 +344,6 @@
       renderMetrics(el, {
         agent: "(faça login no popup)",
         updatedAt: new Date().toISOString(),
-        slaTarget: { tmaSeconds: 240, tmeSeconds: 60 },
         native: { available: false, error: resp.error },
         matrix: { available: false, error: resp.error },
       });
