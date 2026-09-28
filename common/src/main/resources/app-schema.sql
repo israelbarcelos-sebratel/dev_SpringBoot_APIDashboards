@@ -45,3 +45,15 @@ ALTER TABLE usuarios_extensao ADD COLUMN IF NOT EXISTS manual TINYINT(1) NOT NUL
 -- Quem tem o e-mail em mais de um cadastro (trocou de área) escolhe qual usar; guardamos a última
 -- escolha (NULL = todos os cadastros somados). Ver UsuarioRepository.salvarPreferido.
 ALTER TABLE usuarios_extensao ADD COLUMN IF NOT EXISTS preferido VARCHAR(255) NULL;
+
+-- Correspondência de nomes Matrix <-> Native ajustada pelo administrador (ver CorrespondenciaNomes -
+-- os pares automáticos não ficam aqui, só os ajustes). acao = 'manual' (mesma pessoa; substitui os
+-- pares automáticos dos dois nomes) ou 'bloqueado' (par automático errado). Nomes comparados exatos.
+CREATE TABLE IF NOT EXISTS correspondencia_nomes (
+    nome_matrix    VARCHAR(255) COLLATE utf8mb4_bin NOT NULL,
+    nome_native    VARCHAR(255) COLLATE utf8mb4_bin NOT NULL,
+    acao           VARCHAR(16)  NOT NULL,
+    atualizado_por VARCHAR(255) NOT NULL,
+    atualizado_em  DATETIME     NOT NULL,
+    PRIMARY KEY (nome_matrix, nome_native)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

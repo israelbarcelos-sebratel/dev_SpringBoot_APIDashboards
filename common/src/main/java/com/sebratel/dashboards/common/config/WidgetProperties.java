@@ -20,7 +20,10 @@ import java.util.Map;
  *     data-coluna: data_entrada          # defines "hoje" / the 6-week window
  *     tempos:
  *       tma: { inicio: data_atendimento, fim: data_finalizacao }   # gap between two datetimes
- *       tme: { hms: espera }                                       # "HH:MM:SS" varchar
+ *       tme: { hms: espera, meta-segundos: 25 }                    # "HH:MM:SS" varchar + limite
+ *     tmea:                               # intervalo entre atendimentos (epoch seconds, SQL)
+ *       inicio: "UNIX_TIMESTAMP(`data_hora`) + TIME_TO_SEC(`espera`)"
+ *       fim: "UNIX_TIMESTAMP(`data_hora`) + TIME_TO_SEC(`espera`) + TIME_TO_SEC(`atendimento`)"
  *     detalhe:                            # columns of the per-call table (/ext/widget/detalhe)
  *       - { chave: protocolo, rotulo: Protocolo, coluna: protocolo }
  *       - { chave: cliente, rotulo: Cliente, coluna: contato, alias: true }  # pseudonymized
@@ -34,6 +37,7 @@ public class WidgetProperties {
     private Map<String, Metrica> tempos = new LinkedHashMap<>();
     private List<Coluna> detalhe = new ArrayList<>();
     private int detalheLimite = 2000;
+    private Tmea tmea = new Tmea();
 
     public String getDataColuna() {
         return dataColuna;
@@ -57,6 +61,14 @@ public class WidgetProperties {
 
     public void setDetalhe(List<Coluna> detalhe) {
         this.detalhe = detalhe;
+    }
+
+    public Tmea getTmea() {
+        return tmea;
+    }
+
+    public void setTmea(Tmea tmea) {
+        this.tmea = tmea;
     }
 
     public int getDetalheLimite() {
@@ -112,10 +124,12 @@ public class WidgetProperties {
 
     /**
      * Either {@code hms} (an "HH:MM:SS" column) or {@code inicio}+{@code fim} (two datetime columns).
-     * {@code formula} is the human explanation shown next to the metric in the per-call table.
+     * {@code formula} is the human explanation shown next to the metric in the per-call table;
+     * {@code metaSegundos} the productivity limit (above it the extension shows the time as exceeded).
      */
     public static class Metrica {
         private String formula;
+        private Integer metaSegundos;
         private String hms;
         private String inicio;
         private String fim;
@@ -137,6 +151,14 @@ public class WidgetProperties {
 
         public void setFormula(String formula) {
             this.formula = formula;
+        }
+
+        public Integer getMetaSegundos() {
+            return metaSegundos;
+        }
+
+        public void setMetaSegundos(Integer metaSegundos) {
+            this.metaSegundos = metaSegundos;
         }
 
         public String getHms() {
@@ -161,6 +183,66 @@ public class WidgetProperties {
 
         public void setFim(String fim) {
             this.fim = fim;
+        }
+    }
+
+    /**
+     * TMEA — "tempo médio entre atendimentos": how long an atendente went without a call between one
+     * and the next. {@code inicio}/{@code fim} are SQL expressions (from application.yml only) giving
+     * each call's start/end in epoch seconds; the gap before a call is its {@code inicio} minus the
+     * latest {@code fim} of the same atendente's earlier calls that day (overlap = 0). Gaps longer than
+     * {@code maxIntervaloMinutos} (lunch, end of shift) are left out. The widget compares it with the
+     * average of the other atendentes of the same sector over the last {@code diasReferencia} days.
+     */
+    public static class Tmea {
+        private String inicio;
+        private String fim;
+        private String formula;
+        private int maxIntervaloMinutos = 60;
+        private int diasReferencia = 30;
+
+        public boolean configurado() {
+            return inicio != null && !inicio.isBlank() && fim != null && !fim.isBlank();
+        }
+
+        public String getInicio() {
+            return inicio;
+        }
+
+        public void setInicio(String inicio) {
+            this.inicio = inicio;
+        }
+
+        public String getFim() {
+            return fim;
+        }
+
+        public void setFim(String fim) {
+            this.fim = fim;
+        }
+
+        public String getFormula() {
+            return formula;
+        }
+
+        public void setFormula(String formula) {
+            this.formula = formula;
+        }
+
+        public int getMaxIntervaloMinutos() {
+            return maxIntervaloMinutos;
+        }
+
+        public void setMaxIntervaloMinutos(int maxIntervaloMinutos) {
+            this.maxIntervaloMinutos = maxIntervaloMinutos;
+        }
+
+        public int getDiasReferencia() {
+            return diasReferencia;
+        }
+
+        public void setDiasReferencia(int diasReferencia) {
+            this.diasReferencia = diasReferencia;
         }
     }
 }

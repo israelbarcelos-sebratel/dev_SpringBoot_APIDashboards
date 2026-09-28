@@ -2,6 +2,7 @@ package com.sebratel.dashboards.common.auth;
 
 import com.sebratel.dashboards.common.auth.UsuarioRepository.Usuario;
 import com.sebratel.dashboards.common.cache.ClienteAlias;
+import com.sebratel.dashboards.common.cache.ReferenciaMensalJob;
 import com.sebratel.dashboards.common.cache.TemposAtendenteCache;
 import com.sebratel.dashboards.common.cache.TemposHojeJob;
 import com.sebratel.dashboards.common.config.TableGroupProperties;
@@ -45,11 +46,14 @@ public class ExtController {
     private final SuporteService suporte;
     private final WidgetProperties widgetProperties;
     private final ClienteAlias clienteAlias;
+    private final ReferenciaMensalJob referencia;
+    private final CorrespondenciaNomes correspondencia;
 
     public ExtController(UsuarioRepository usuarios, SemanticService semantic,
                          TemposAtendenteCache temposCache, TableGroupProperties groupProperties,
                          TemposHojeJob temposHoje, SuporteService suporte, WidgetProperties widgetProperties,
-                         ClienteAlias clienteAlias) {
+                         ClienteAlias clienteAlias, ReferenciaMensalJob referencia,
+                         CorrespondenciaNomes correspondencia) {
         this.usuarios = usuarios;
         this.semantic = semantic;
         this.temposCache = temposCache;
@@ -58,6 +62,8 @@ public class ExtController {
         this.suporte = suporte;
         this.widgetProperties = widgetProperties;
         this.clienteAlias = clienteAlias;
+        this.referencia = referencia;
+        this.correspondencia = correspondencia;
     }
 
     @GetMapping("/ext/me")
@@ -104,7 +110,9 @@ public class ExtController {
      * Everything the floating widget shows, in one call: today's averages only (in memory, see
      * {@link TemposHojeJob}) — monthly/longer views are for managers via the dashboards — plus how
      * fresh the ingested data is ({@code ultimoRegistro}). Metric keys come from
-     * {@code app.widget.tempos} ("tma"/"tme" in both systems, plus "tmic"/"tmia" in matrix). Same
+     * {@code app.widget.tempos} ("tma"/"tme" in both systems, plus "tmic"/"tmia" in matrix), plus
+     * "tmea" with its sector reference ({@code tmeaReferencia}), each metric's limit ({@code metas})
+     * and the number of calls today and in the month so far ({@code atendimentos}). Same
      * visibility rule for everyone: a common user only gets their own atendente (403 otherwise — the
      * extension can't bypass this by editing its storage); an admin may ask for anyone.
      */
@@ -121,9 +129,33 @@ public class ExtController {
         resp.put("nomes", nomes);
         resp.put("role", u.role());
         resp.put("hoje", temposHoje.somar(hoje, nomes));
+        resp.put("metas", metas());
+        resp.put("tmeaReferencia", referencia.tmeaSetor(nomes));
+        resp.put("atendimentos", atendimentos(hoje, nomes));
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hoje.calculadoEm());
         return resp;
+    }
+
+    /** metrica -> limit in seconds ({@code app.widget.tempos.*.meta-segundos}), only those that have one. */
+    private Map<String, Integer> metas() {
+        Map<String, Integer> metas = new LinkedHashMap<>();
+        widgetProperties.getTempos().forEach((chave, m) -> {
+            if (m.getMetaSegundos() != null) {
+                metas.put(chave, m.getMetaSegundos());
+            }
+        });
+        return metas;
+    }
+
+    /** {@code {hoje, mes}}: calls today and from the 1st of the month until now (mes null right after midnight). */
+    private Map<String, Object> atendimentos(TemposHojeJob.Snapshot hoje, List<String> nomes) {
+        long hojeN = temposHoje.atendimentosHoje(hoje, nomes);
+        Long ateOntem = referencia.atendimentosMesAteOntem(nomes, hoje.calculadoEm());
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("hoje", hojeN);
+        r.put("mes", ateOntem == null ? null : ateOntem + hojeN);
+        return r;
     }
 
     /**
@@ -145,11 +177,25 @@ public class ExtController {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("chave", chave);
             item.put("formula", m.getFormula());
+            item.put("meta", m.getMetaSegundos());
             TemposHojeJob.Tempo t = medias.get(chave);
             item.put("segundosMedios", t == null ? null : t.segundosMedios());
             item.put("amostras", t == null ? 0 : t.amostras());
             metricas.add(item);
         });
+        WidgetProperties.Tmea tmea = widgetProperties.getTmea();
+        if (tmea.configurado()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("chave", TemposHojeJob.TMEA);
+            item.put("formula", tmea.getFormula() + " · intervalos acima de " + tmea.getMaxIntervaloMinutos()
+                    + " min (pausa, almoço, fim de turno) não entram");
+            item.put("meta", null);
+            TemposHojeJob.Tempo t = medias.get(TemposHojeJob.TMEA);
+            item.put("segundosMedios", t == null ? null : t.segundosMedios());
+            item.put("amostras", t == null ? 0 : t.amostras());
+            item.put("referencia", referencia.tmeaSetor(nomes));
+            metricas.add(item);
+        }
         List<Map<String, String>> colunas = widgetProperties.getDetalhe().stream()
                 .map(c -> Map.of("chave", c.getChave(), "rotulo", c.getRotulo()))
                 .toList();
@@ -161,6 +207,7 @@ public class ExtController {
         resp.put("atendente", nomes.get(0));
         resp.put("nomes", nomes);
         resp.put("metricas", metricas);
+        resp.put("atendimentos", atendimentos(hoje, nomes));
         resp.put("colunas", colunas);
         resp.put("linhas", linhas);
         resp.put("truncado", linhas.size() >= widgetProperties.getDetalheLimite());
@@ -199,18 +246,21 @@ public class ExtController {
      * ({@code preferido}), or all of them combined if they never chose. A specific name is allowed if it
      * is one of the caller's own, or for admins any atendente. Unbound callers get 409, which the
      * extension turns into the "Fale com seu administrador" prompt.
+     *
+     * <p>The names come from Matrix (e-mail binding) or from the other system (admin list), so they
+     * are translated to this system's spelling at the end ({@link CorrespondenciaNomes}).
      */
     private List<String> resolverAlvo(Usuario u, String atendente) {
         if (atendente != null && !atendente.isBlank()) {
             if (!u.nomes().contains(atendente) && !UsuarioRepository.ADMIN.equals(u.role())) {
                 throw new AuthException(403, "Somente administradores podem ver dados de outros atendentes.");
             }
-            return List.of(atendente);
+            return correspondencia.locais(List.of(atendente));
         }
         if (u.nomes().isEmpty()) {
             throw new AuthException(409, "Seu e-mail não está vinculado a nenhum atendente. Fale com seu administrador pelo popup da extensão.");
         }
-        return u.preferido() != null ? List.of(u.preferido()) : u.nomes();
+        return correspondencia.locais(u.preferido() != null ? List.of(u.preferido()) : u.nomes());
     }
 
     @GetMapping("/ext/usuarios")

@@ -11,7 +11,6 @@ const SebratelApi = {
   NATIVE: "http://186.219.134.246:8092",
   MATRIX: "http://186.219.134.246:8091",
   CONFIG_KEY: "sebratelConfig",
-  SLA: { tmaSeconds: 240, tmeSeconds: 60 },
 
   getToken(interactive) {
     return new Promise((resolve) => {
@@ -103,16 +102,22 @@ const SebratelApi = {
 
     // Só dados do dia: o widget é diário; períodos maiores ficam com os gestores (dashboards).
     // null = ainda não houve atendimento hoje.
+    // meta = limite de produtividade do sistema (vem do servidor: app.widget.tempos.*.meta-segundos).
     const metrica = (res, chave) => ({
       hoje: res.hoje[chave] ? Math.round(res.hoje[chave].segundosMedios) : null,
       amostras: res.hoje[chave]?.amostras || 0,
+      meta: res.metas?.[chave] ?? null,
     });
     const secao = (res, chaves) => {
       if (res.status !== "fulfilled") {
         return { available: false, error: res.reason?.message || "Dados indisponíveis" };
       }
-      const out = { available: true, ultimoRegistro: res.value.ultimoRegistro };
-      for (const [nome, chave] of Object.entries(chaves)) out[nome] = metrica(res.value, chave);
+      const v = res.value;
+      const out = { available: true, ultimoRegistro: v.ultimoRegistro };
+      for (const [nome, chave] of Object.entries(chaves)) out[nome] = metrica(v, chave);
+      // TMEA: comparado com a média dos outros atendentes do mesmo setor (últimos 30 dias).
+      out.tmea = { ...metrica(v, "tmea"), referencia: v.tmeaReferencia || null };
+      out.atendimentos = v.atendimentos || { hoje: 0, mes: null };
       return out;
     };
 
@@ -120,7 +125,6 @@ const SebratelApi = {
       agent: ok.atendente,
       viewingOther: Boolean(alvo) && ok.atendente === alvo,
       updatedAt: new Date().toISOString(),
-      slaTarget: this.SLA,
       // Chaves de app.widget.tempos no servidor: "tma"/"tme" nas duas APIs, + "tmic"/"tmia" na Matrix.
       native: secao(native, { tma: "tma", tme: "tme" }),
       matrix: secao(matrix, { tma: "tma", tme: "tme", tmic: "tmic", tmia: "tmia" }),
