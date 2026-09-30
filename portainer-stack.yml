@@ -121,8 +121,10 @@ services:
       DB_PASSWORD: "${DB_PASSWORD}"
       <<: *app-db-env
       ANALISE_TOKEN: "${ANALISE_TOKEN:-}"
-      WORKERS: "${ANALISE_WORKERS:-2}"
-      THREADS: "${ANALISE_THREADS:-3}"
+      # 1 worker: cada Whisper "medium" ocupa ~2,5–3 GB aqui; com 2 o container batia no limite de memória e o
+      # sistema matava o worker (30/09). Com 1 worker o dia leva ~6 h (roda de madrugada).
+      WORKERS: "${ANALISE_WORKERS:-1}"
+      THREADS: "${ANALISE_THREADS:-6}"
       MODELO: "${ANALISE_MODELO:-medium}"
       RETENCAO_DIAS: "${ANALISE_RETENCAO_DIAS:-90}"
     volumes:
