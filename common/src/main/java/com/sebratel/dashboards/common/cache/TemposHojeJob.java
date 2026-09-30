@@ -214,17 +214,19 @@ public class TemposHojeJob {
         }
     }
 
-    /** Snapshot for today's rows; null if not configured or on error (the last good one is kept). */
-    private Snapshot calcularHoje() {
+    /** Per-atendente averages (with TMEA) and number of rows over {@code janela}. */
+    public record Periodo(Map<String, Map<String, Tempo>> porAtendente, Map<String, Long> atendimentos) {}
+
+    /**
+     * Same numbers as today's snapshot over any window (a WHERE condition on the source table) — used
+     * for the admin ranking over the last days ({@link ReferenciaMensalJob}). Null if not configured.
+     */
+    public Periodo temposPorAtendente(String janela) {
         Domain d = props.domain(DOMINIO);
         String atendenteCol = d == null ? null : d.getDimensoes().get(DIMENSAO_ATENDENTE);
-        String dataCol = widget.getDataColuna();
-        if (d == null || atendenteCol == null || dataCol == null || dataCol.isBlank() || widget.getTempos().isEmpty()) {
+        if (d == null || atendenteCol == null || widget.getTempos().isEmpty()) {
             return null;
         }
-        String tabela = d.getTabela();
-        String janela = janelaHoje(dataCol);
-
         List<String> metricas = List.copyOf(widget.getTempos().keySet());
         StringBuilder sql = new StringBuilder("SELECT `").append(atendenteCol).append("` AS atendente");
         for (int i = 0; i < metricas.size(); i++) {
@@ -234,30 +236,46 @@ public class TemposHojeJob {
                .append(", COUNT(").append(valido).append(") AS n").append(i);
         }
         sql.append(", COUNT(*) AS total");
-        sql.append(" FROM `").append(tabela).append("` WHERE ").append(janela)
+        sql.append(" FROM `").append(d.getTabela()).append("` WHERE ").append(janela)
            .append(" AND ").append(atendenteValido(atendenteCol))
            .append(" GROUP BY `").append(atendenteCol).append("`");
 
-        try {
-            Map<String, Map<String, Tempo>> porAtendente = new HashMap<>();
-            Map<String, Long> atendimentos = new HashMap<>();
-            jdbcTemplate.query(sql.toString(), rs -> {
-                atendimentos.put(rs.getString("atendente"), rs.getLong("total"));
-                Map<String, Tempo> tempos = new LinkedHashMap<>();
-                for (int i = 0; i < metricas.size(); i++) {
-                    long n = rs.getLong("n" + i);
-                    if (n > 0) {
-                        tempos.put(metricas.get(i), new Tempo(rs.getDouble("m" + i), n));
-                    }
+        Map<String, Map<String, Tempo>> porAtendente = new HashMap<>();
+        Map<String, Long> atendimentos = new HashMap<>();
+        jdbcTemplate.query(sql.toString(), rs -> {
+            atendimentos.put(rs.getString("atendente"), rs.getLong("total"));
+            Map<String, Tempo> tempos = new LinkedHashMap<>();
+            for (int i = 0; i < metricas.size(); i++) {
+                long n = rs.getLong("n" + i);
+                if (n > 0) {
+                    tempos.put(metricas.get(i), new Tempo(rs.getDouble("m" + i), n));
                 }
-                porAtendente.put(rs.getString("atendente"), tempos);
-            });
-            tmeaPorAtendente(janela).forEach((atendente, t) ->
-                    porAtendente.computeIfAbsent(atendente, k -> new LinkedHashMap<>()).put(TMEA, t));
+            }
+            porAtendente.put(rs.getString("atendente"), tempos);
+        });
+        tmeaPorAtendente(janela).forEach((atendente, t) ->
+                porAtendente.computeIfAbsent(atendente, k -> new LinkedHashMap<>()).put(TMEA, t));
+        return new Periodo(Map.copyOf(porAtendente), Map.copyOf(atendimentos));
+    }
+
+    /** Snapshot for today's rows; null if not configured or on error (the last good one is kept). */
+    private Snapshot calcularHoje() {
+        Domain d = props.domain(DOMINIO);
+        String dataCol = widget.getDataColuna();
+        if (d == null || dataCol == null || dataCol.isBlank()) {
+            return null;
+        }
+        String tabela = d.getTabela();
+        String janela = janelaHoje(dataCol);
+        try {
+            Periodo periodo = temposPorAtendente(janela);
+            if (periodo == null) {
+                return null;
+            }
             Map<String, Object> meta = jdbcTemplate.queryForMap(
                     "SELECT CAST(MAX(`" + dataCol + "`) AS CHAR) AS ultimo, CAST(NOW() AS CHAR) AS agora FROM `"
                             + tabela + "` WHERE " + janela);
-            return new Snapshot(Map.copyOf(porAtendente), Map.copyOf(atendimentos),
+            return new Snapshot(periodo.porAtendente(), periodo.atendimentos(),
                     (String) meta.get("ultimo"), (String) meta.get("agora"));
         } catch (DataAccessException e) {
             // Mantém o último snapshot bom; o widget mostra "dados até" e dá para ver que parou.

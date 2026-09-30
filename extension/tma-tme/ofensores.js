@@ -16,10 +16,16 @@ const METRICAS = [
   { chave: "tmea", titulo: "TMEA", nome: "Tempo médio entre atendimentos" },
 ];
 const TOP = 10;
+const PERIODOS = {
+  hoje: { titulo: "hoje", quando: "hoje", minimo: 3 },
+  "30d": { titulo: "últimos 30 dias", quando: "nos últimos 30 dias", minimo: 20 },
+};
 const PREFS_KEY = "sebratelOfensores";
 
-const dados = {}; // sistema -> resposta ou { erro }
-let prefs = { sistema: "native", minimo: 3, setor: "", todos: false };
+const dados = {}; // "periodo:sistema" -> resposta ou { erro }
+// minimo por período: 3 atendimentos num dia não é o mesmo que 3 em 30 dias.
+let prefs = { periodo: "hoje", sistema: "native", minimos: { hoje: 3, "30d": 20 }, setor: "", todos: false };
+const minimo = () => prefs.minimos[prefs.periodo] ?? PERIODOS[prefs.periodo].minimo;
 
 function fmt(seg) {
   if (seg === null || seg === undefined) return "—";
@@ -60,7 +66,7 @@ function ranking(resp, metrica) {
   const linhas = [];
   for (const a of resp.atendentes) {
     const t = a.tempos[metrica];
-    if (!t || a.atendimentos < prefs.minimo) continue;
+    if (!t || a.atendimentos < minimo()) continue;
     if (prefs.setor && a.setor !== prefs.setor) continue;
     const valor = t.segundosMedios;
     let ref = null;
@@ -82,6 +88,18 @@ function ranking(resp, metrica) {
   return { meta, linhas };
 }
 
+/** "Caroline Vargas - Financeiro" -> ["Caroline Vargas", "Financeiro"] (o setor pode vir antes ou depois). */
+function separarSetor(a) {
+  const partes = a.nome.split(/\s+-\s+/);
+  if (partes.length > 1) {
+    const chave = (s) => s.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+    const i = a.setor ? partes.findIndex((p) => chave(p) === chave(a.setor)) : -1;
+    const idx = i >= 0 ? i : partes.length - 1;
+    return [partes.filter((_, j) => j !== idx).join(" - "), partes[idx]];
+  }
+  return [a.nome, a.setor || ""];
+}
+
 function abrirDetalhe(nome) {
   chrome.tabs.create({ url: chrome.runtime.getURL(`detalhes.html?atendente=${encodeURIComponent(nome)}`) });
 }
@@ -92,13 +110,14 @@ function cardMetrica(resp, m) {
   const card = el("div", { class: "card rank" });
   const regra = m.chave === "tmea" ? "comparado com a média do setor (30 dias)" : meta ? `limite ${fmt(meta)}` : "sem limite definido";
   card.append(
-    el("div", { class: "section-head" },
-      el("div", {}, el("div", { class: "section-marker", text: `${m.titulo} · ${m.nome}` }), el("div", { class: "muted", text: regra })),
-      el("span", { class: `resumo-n ${acima ? (m.chave === "tmea" ? "warn" : "bad") : "ok"}`, text: linhas.length ? `${acima} de ${linhas.length} ${m.chave === "tmea" ? "acima do setor" : "acima do limite"}` : "" })
+    el("div", { class: "rank-head" },
+      el("div", { class: "section-marker", text: `${m.titulo} · ${m.nome}` }),
+      el("div", { class: "muted", text: regra }),
+      el("div", { class: `resumo-n ${acima ? (m.chave === "tmea" ? "warn" : "bad") : "ok"}`, text: linhas.length ? `${acima} de ${linhas.length} ${m.chave === "tmea" ? "acima do setor" : "acima do limite"}` : "" })
     )
   );
   if (!linhas.length) {
-    card.append(el("p", { class: "muted", text: "Ninguém com atendimentos suficientes hoje." }));
+    card.append(el("p", { class: "muted", text: `Ninguém com ${minimo()} ou mais atendimentos ${PERIODOS[prefs.periodo].quando}.` }));
     return card;
   }
   const visiveis = prefs.todos ? linhas : linhas.slice(0, TOP);
@@ -106,8 +125,18 @@ function cardMetrica(resp, m) {
   visiveis.forEach((l, i) => {
     const excedeu = l.excesso !== null && l.excesso > 0;
     const classe = l.excesso === null ? "" : excedeu ? (m.chave === "tmea" ? "warn" : "bad") : "ok";
-    const nome = el("button", { type: "button", class: "link", title: "Abrir os atendimentos de hoje dessa pessoa", text: l.a.nome });
+    const [pessoa, setor] = separarSetor(l.a);
+    const nome = el("div", { class: "link", role: "link", tabindex: "0", title: `${l.a.nome}
+Abrir os atendimentos de hoje dessa pessoa` },
+      el("span", { class: "pessoa", text: pessoa }),
+      setor ? el("span", { class: "setor", text: setor }) : null);
     nome.addEventListener("click", () => abrirDetalhe(l.a.nome));
+    nome.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        abrirDetalhe(l.a.nome);
+      }
+    });
     let dif = "—";
     let difTitulo = "";
     if (l.excesso !== null) {
@@ -153,11 +182,24 @@ function desenharSetores(resp) {
 }
 
 function desenhar() {
+  const per = PERIODOS[prefs.periodo];
   for (const b of document.querySelectorAll(".chip[data-sistema]")) b.setAttribute("aria-pressed", String(b.dataset.sistema === prefs.sistema));
+  for (const b of document.querySelectorAll(".periodo")) b.setAttribute("aria-selected", String(b.dataset.periodo === prefs.periodo));
+  $("titulo").textContent = `Maiores ofensores · ${per.titulo}`;
+  $("minimo").value = minimo();
+  $("legenda").textContent =
+    (prefs.periodo === "hoje"
+      ? "Mesmos números que cada atendente vê no widget, só de hoje — no começo do dia poucos atendimentos entraram, por isso o mínimo. "
+      : "Médias dos últimos 30 dias (inclui hoje), recalculadas a cada 10 minutos. ") +
+    "TME e TMA: vermelho acima do limite do sistema. TMEA: âmbar acima da média dos colegas do mesmo setor nos últimos 30 dias. " +
+    "Clique no nome para ver os atendimentos de hoje da pessoa.";
   const alvo = $("rankings");
   alvo.innerHTML = "";
-  const resp = dados[prefs.sistema];
-  if (!resp) return;
+  const resp = dados[`${prefs.periodo}:${prefs.sistema}`];
+  if (!resp) {
+    $("sub").textContent = "Carregando…";
+    return;
+  }
   if (resp.erro) {
     alvo.append(el("div", { class: "card" }, el("div", { class: "error", text: resp.erro })));
     $("sub").textContent = "";
@@ -166,16 +208,21 @@ function desenhar() {
   desenharSetores(resp);
   for (const m of METRICAS) alvo.append(cardMetrica(resp, m));
   const hora = resp.ultimoRegistro ? resp.ultimoRegistro.slice(11, 16) : "—";
-  $("sub").textContent = `${resp.atendentes.length} atendente(s) com atendimentos hoje · dados até ${hora} · atualizado às ${new Date().toLocaleTimeString("pt-BR")}`;
+  const total = resp.atendentes.reduce((s, a) => s + a.atendimentos, 0).toLocaleString("pt-BR");
+  const calc = resp.calculadoEm ? resp.calculadoEm.slice(11, 16) : "—";
+  $("sub").textContent = prefs.periodo === "hoje"
+    ? `${resp.atendentes.length} atendente(s) · ${total} atendimentos hoje · dados até ${hora}`
+    : `${resp.atendentes.length} atendente(s) · ${total} atendimentos nos últimos ${resp.dias} dias · calculado às ${calc}`;
 }
 
 async function carregar() {
   const btn = $("atualizar-btn");
   btn.disabled = true;
   btn.textContent = "Atualizando…";
-  const res = await Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), "/ext/ofensores")));
+  const periodo = prefs.periodo;
+  const res = await Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), `/ext/ofensores?periodo=${periodo}`)));
   res.forEach((r, i) => {
-    dados[SISTEMAS[i].chave] = r.status === "fulfilled"
+    dados[`${periodo}:${SISTEMAS[i].chave}`] = r.status === "fulfilled"
       ? r.value
       : { erro: r.reason?.status === 403 ? "Somente administradores." : r.reason?.message || "Dados indisponíveis" };
   });
@@ -197,9 +244,18 @@ $("setor").addEventListener("change", (e) => {
   salvarPrefs();
   desenhar();
 });
+for (const b of document.querySelectorAll(".periodo")) {
+  b.addEventListener("click", () => {
+    if (prefs.periodo === b.dataset.periodo) return;
+    prefs.periodo = b.dataset.periodo;
+    salvarPrefs();
+    desenhar(); // mostra o que já tem (ou "Carregando…") e busca o atual
+    carregar().catch(() => {});
+  });
+}
 $("minimo").addEventListener("change", (e) => {
-  prefs.minimo = Math.max(1, Number(e.target.value) || 1);
-  e.target.value = prefs.minimo;
+  prefs.minimos = { ...prefs.minimos, [prefs.periodo]: Math.max(1, Number(e.target.value) || 1) };
+  e.target.value = minimo();
   salvarPrefs();
   desenhar();
 });
@@ -211,8 +267,10 @@ $("todos").addEventListener("change", (e) => {
 $("atualizar-btn").addEventListener("click", () => carregar().catch(() => {}));
 
 chrome.storage.local.get([PREFS_KEY], (r) => {
-  prefs = { ...prefs, ...(r[PREFS_KEY] || {}) };
-  $("minimo").value = prefs.minimo;
+  const salvo = r[PREFS_KEY] || {};
+  delete salvo.minimo; // formato antigo (um mínimo só)
+  prefs = { ...prefs, ...salvo, minimos: { ...prefs.minimos, ...(salvo.minimos || {}) } };
+  if (!PERIODOS[prefs.periodo]) prefs.periodo = "hoje";
   $("todos").checked = prefs.todos;
   carregar().catch((err) => {
     $("sub").textContent = err.message;

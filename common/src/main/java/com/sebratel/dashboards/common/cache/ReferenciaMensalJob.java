@@ -48,15 +48,19 @@ public class ReferenciaMensalJob {
      */
     public record TmeaReferencia(String setor, double segundosMedios, int atendentes, int dias) {}
 
-    /** @param referenteA the DB's CURDATE() ("YYYY-MM-DD") this was computed for */
+    /**
+     * @param periodo     each atendente's TMA/TME…/TMEA and calls over the last days (admin ranking)
+     * @param referenteA  the DB's CURDATE() ("YYYY-MM-DD") this was computed for
+     * @param calculadoEm the DB's NOW() when computed
+     */
     private record Dados(Map<String, Tempo> tmea, Map<String, String> setores, Map<String, Long> mesAteOntem,
-                         String referenteA) {}
+                         TemposHojeJob.Periodo periodo, String referenteA, String calculadoEm) {}
 
     private final JdbcTemplate jdbcTemplate;
     private final SemanticDomainProperties props;
     private final WidgetProperties widget;
     private final TemposHojeJob temposHoje;
-    private volatile Dados dados = new Dados(Map.of(), Map.of(), Map.of(), null);
+    private volatile Dados dados = new Dados(Map.of(), Map.of(), Map.of(), null, null, null);
 
     public ReferenciaMensalJob(JdbcTemplate jdbcTemplate, SemanticDomainProperties props, WidgetProperties widget,
                                TemposHojeJob temposHoje) {
@@ -89,8 +93,21 @@ public class ReferenciaMensalJob {
         if (atendentes == 0) {
             return null;
         }
-        return new TmeaReferencia(setor == null ? null : rotulo(d, setor), soma / atendentes, atendentes,
-                widget.getTmea().getDiasReferencia());
+        return new TmeaReferencia(setor == null ? null : rotulo(d, setor), soma / atendentes, atendentes, dias());
+    }
+
+    /** Each atendente's numbers over the last {@link #dias()} days; null until the first refresh. */
+    public TemposHojeJob.Periodo periodo() {
+        return dados.periodo();
+    }
+
+    /** DB clock of the last refresh of {@link #periodo()}. */
+    public String periodoCalculadoEm() {
+        return dados.calculadoEm();
+    }
+
+    public int dias() {
+        return Math.max(1, widget.getTmea().getDiasReferencia());
     }
 
     /** Sector label of an atendente name ("Financeiro"), or null when it has none / not seen in the period. */
@@ -122,10 +139,19 @@ public class ReferenciaMensalJob {
             return;
         }
         try {
-            String hoje = jdbcTemplate.queryForObject("SELECT CAST(CURDATE() AS CHAR)", String.class);
-            int dias = Math.max(1, widget.getTmea().getDiasReferencia());
-            Map<String, Tempo> tmea = temposHoje.tmeaPorAtendente(
-                    "`" + dataCol + "` >= DATE_FORMAT(CURDATE() - INTERVAL " + dias + " DAY, '%Y-%m-%d')");
+            Map<String, Object> agora = jdbcTemplate.queryForMap("SELECT CAST(CURDATE() AS CHAR) AS hoje, CAST(NOW() AS CHAR) AS agora");
+            String hoje = (String) agora.get("hoje");
+            // Mesma janela para o TMEA de referência e para o ranking dos últimos dias.
+            TemposHojeJob.Periodo periodo = temposHoje.temposPorAtendente(
+                    "`" + dataCol + "` >= DATE_FORMAT(CURDATE() - INTERVAL " + dias() + " DAY, '%Y-%m-%d')");
+            Map<String, Tempo> tmea = new HashMap<>();
+            if (periodo != null) {
+                periodo.porAtendente().forEach((nome, t) -> {
+                    if (t.containsKey(TemposHojeJob.TMEA)) {
+                        tmea.put(nome, t.get(TemposHojeJob.TMEA));
+                    }
+                });
+            }
 
             Map<String, Long> mes = new HashMap<>();
             jdbcTemplate.query("SELECT `" + atendenteCol + "` AS atendente, COUNT(*) AS n FROM `" + d.getTabela()
@@ -137,7 +163,8 @@ public class ReferenciaMensalJob {
                         mes.put(rs.getString("atendente"), rs.getLong("n"));
                     });
 
-            dados = new Dados(Map.copyOf(tmea), setores(tmea.keySet()), Map.copyOf(mes), hoje);
+            dados = new Dados(Map.copyOf(tmea), setores(periodo == null ? tmea.keySet() : periodo.porAtendente().keySet()),
+                    Map.copyOf(mes), periodo, hoje, (String) agora.get("agora"));
             log.debug("Referência mensal do widget ({}): {} atendentes com TMEA, {} com atendimentos no mês.",
                     d.getTabela(), tmea.size(), mes.size());
         } catch (DataAccessException e) {
