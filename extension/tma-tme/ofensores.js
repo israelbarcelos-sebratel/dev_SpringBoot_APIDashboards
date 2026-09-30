@@ -25,6 +25,8 @@ const PERIODOS = {
 const PREFS_KEY = "sebratelOfensores";
 
 const dados = {}; // "periodo:sistema" -> resposta ou { erro }
+/** Pares de nomes Native <-> Matrix em vigor (tela "Relacionar nomes"): { native: Map, matrix: Map }. */
+let correspondencia = null;
 // minimo por período: 3 atendimentos num dia não é o mesmo que 3 em 30 dias.
 let prefs = {
   periodo: "hoje",
@@ -531,9 +533,77 @@ function detalhePessoa(resp, a, ncols) {
       ...[["Dias com atendimento", x.dias], ["Atendimentos", x.atendimentos], ["Tempo em pausa", horasFmt(x.pausaSegundos)],
         ["Tempo acima do previsto", resp.indicadores.previsto ? horasFmt(x.excedidoSegundos) : "—"],
         ["Maior ociosidade sem pausa", a.maiorOcioso ? fmt(a.maiorOcioso) : "—"],
-        ["Ligações p/ ramal interno", resp.indicadores.internas ? `${x.internas} (${horasFmt(x.internasSegundos)})` : "—"]]
+        ["Ligações p/ ramal interno", resp.indicadores.internas ? `${x.internas} (${horasFmt(x.internasSegundos)})` : "—"],
+        ...SISTEMAS.map((s) => {
+          const l = logadoEm(s.chave, a.nome, prefs.sistema);
+          return [`Tempo logado ${s.titulo}`, !l ? "—" : `${l.estimado ? "≈" : ""}${hm(l.segundos)}${l.segundos ? ` · ${l.dias} dia(s) · ${l.sessoes} sessão(ões)` : ""}`];
+        })]
         .map(([k, v]) => el("tr", {}, el("td", { text: k }), el("td", { text: String(v) })))))));
   return el("tr", { class: "detalhe" }, el("td", { colspan: String(ncols) }, el("div", { class: "detalhe-grid" }, ...blocos)));
+}
+
+function hm(s) {
+  s = Math.round(s || 0);
+  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}`;
+}
+
+async function carregarCorrespondencia() {
+  if (correspondencia) return;
+  try {
+    const r = await SebratelApi.request(SebratelApi.NATIVE, "/ext/correspondencias");
+    const native = new Map();
+    const matrix = new Map();
+    const add = (m, k, v) => m.set(k, [...(m.get(k) || []), v]);
+    for (const p of r.pares || []) {
+      if (p.origem === "bloqueado") continue;
+      add(native, p.nativo, p.matrix);
+      add(matrix, p.matrix, p.nativo);
+    }
+    correspondencia = { native, matrix };
+  } catch {
+    /* sem a correspondência, a outra plataforma é procurada pelo mesmo nome; tenta de novo na próxima carga */
+  }
+}
+
+/**
+ * Tempo logado de `nome` (atendente de `sistemaNome`) na plataforma `alvo`: na própria, pelo nome;
+ * na outra, pelos nomes correspondentes (ou o mesmo nome, se não há par). null = dados indisponíveis.
+ */
+function logadoEm(alvo, nome, sistemaNome) {
+  const resp = dados[`${chavePeriodo()}:${alvo}`];
+  if (!resp || resp.erro || !resp.logados) return null;
+  const nomes = alvo === sistemaNome ? [nome] : correspondencia?.[sistemaNome].get(nome) || [nome];
+  const r = { segundos: 0, dias: 0, sessoes: 0, estimado: 0, nomes, achados: [] };
+  for (const n of nomes) {
+    const l = resp.logados[n];
+    if (!l) continue;
+    r.segundos += l.segundos;
+    r.dias = Math.max(r.dias, l.dias);
+    r.sessoes += l.sessoes;
+    r.estimado += l.estimadoSegundos;
+    r.achados.push(n);
+  }
+  return r;
+}
+
+/** Célula "Logado Native/Matrix": total hoje, média por dia logado em 30 dias. */
+function celulaLogado(alvo, a) {
+  const titulo = alvo === "matrix" ? "Matrix" : "Native";
+  const l = logadoEm(alvo, a.nome, prefs.sistema);
+  if (!l) return el("td", { class: "metric muted", title: `Dados da ${titulo} indisponíveis`, text: "—" });
+  const outro = alvo !== prefs.sistema;
+  if (!l.segundos) {
+    return el("td", { class: "metric muted", title: `Sem login na ${titulo} no período${outro ? ` (procurado como: ${l.nomes.join("; ")})` : ""}`, text: "0h00" });
+  }
+  const hoje = prefs.periodoNova === "hoje";
+  const est = l.estimado > 0;
+  const linhas = [
+    `${titulo}: ${hm(l.segundos)} logado ${hoje ? "hoje" : `em ${l.dias} dia(s) com login`} · ${l.sessoes} sessão(ões)`,
+    est ? `≈ inclui ${hm(l.estimado)} da sessão atual, estimada pela atividade (a Native só grava a sessão no logoff)` : null,
+    outro ? `Como: ${l.achados.join("; ")}` : null,
+  ].filter(Boolean);
+  const valor = hoje ? l.segundos : l.segundos / Math.max(1, l.dias);
+  return el("td", { class: "metric", title: linhas.join("\n"), text: `${est ? "≈" : ""}${hm(valor)}` });
 }
 
 function desenharPausas() {
@@ -579,7 +649,7 @@ function desenharPausas() {
   const curtoNome = { excedidas: "Estourou", encadeadas: "Renovou", relampago: "Relâmpago", ociosoLongo: "Parado", curtos: "Derrubou",
     longos: "Segurou", transferidas: "Transferiu", internas: "Ramal", sessoes: "Deslogou", semFim: "Sem fim", motivoGenerico: "Motivo vazio" };
   const um = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
-  const ncols = 6 + lista.length + 1;
+  const ncols = 8 + lista.length + 1;
   const tbody = el("tbody");
   const visiveis = prefs.todos ? linhas : linhas.slice(0, 30);
   visiveis.forEach((l, i) => {
@@ -597,6 +667,8 @@ function desenharPausas() {
       el("td", { class: "metric n", text: String(x.atendimentos) }),
       el("td", { class: "metric", title: `${x.pausas} pausas em ${x.dias} dia(s)`, text: um(x.pausas / d) }),
       el("td", { class: "metric", title: `${horasFmt(x.pausaSegundos)} no período`, text: fmt(x.pausaSegundos / d) }),
+      celulaLogado("native", l.a),
+      celulaLogado("matrix", l.a),
       ...lista.map((g) => {
         const t = l.t[g.chave];
         const total = g.chave === "transferidas" ? `${x.transferidas} de ${x.atendimentos}` : g.chave === "internas" ? `${x.internas} ligações · ${horasFmt(x.internasSegundos)}`
@@ -621,11 +693,18 @@ Limite ${g.limite} · mediana da operação ${medTxt}/dia`, text: texto });
     });
     tbody.append(tr);
   });
-  const cols = ["", "#", "Atendente", "Atend.", "Pausas/dia", "Pausa/dia"].concat(lista.map((g) => g.nome), ["Alertas"]);
+  const sufixo = prefs.periodoNova === "hoje" ? "" : "/dia";
+  const cols = ["", "#", "Atendente", "Atend.", "Pausas/dia", "Pausa/dia", `Logado Native${sufixo}`, `Logado Matrix${sufixo}`]
+    .concat(lista.map((g) => g.nome), ["Alertas"]);
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, el("tr", {}, ...cols.map((c, i) => el("th", { scope: "col", class: i >= 3 && i < cols.length - 1 ? "metric" : "", text: c })))), tbody));
   card.append(wrap);
   if (!prefs.todos && linhas.length > 30) card.append(el("p", { class: "legend", text: `Mostrando os 30 primeiros de ${linhas.length}.` }));
+  card.append(el("p", { class: "legend", text: "Tempo logado: soma das sessões de login no período (sessões sobrepostas contam uma vez)" +
+    (prefs.periodoNova === "hoje" ? ", até agora. " : "; em 30 dias, a média por dia com login. ") +
+    `Native: a sessão só é gravada no logoff, então a de quem ainda está logado (≈) é estimada da primeira ligação ou pausa depois do último logoff até agora. ` +
+    `Matrix: sessão sem logout vai até o próximo login da pessoa (no máximo ${resp.maxSessaoAbertaHoras ?? 12} h). ` +
+    "A outra plataforma é encontrada pela correspondência de nomes (tela “Relacionar nomes” no popup)." }));
   alvo.append(card, cardTipos(resp));
   const calc = resp.calculadoEm ? resp.calculadoEm.slice(11, 16) : "—";
   $("sub").textContent = `${linhas.length} atendente(s) · calculado às ${calc}`;
@@ -639,7 +718,10 @@ async function carregar() {
   const rota = prefs.periodo === "nova" ? `/ext/ofensores/tmea-nova?periodo=${prefs.periodoNova}`
     : prefs.periodo === "pausas" ? `/ext/ofensores/pausas?periodo=${prefs.periodoNova}`
     : `/ext/ofensores?periodo=${prefs.periodo}`;
-  const res = await Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), rota)));
+  const [res] = await Promise.all([
+    Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), rota))),
+    prefs.periodo === "pausas" ? carregarCorrespondencia() : null,
+  ]);
   res.forEach((r, i) => {
     dados[`${chave}:${SISTEMAS[i].chave}`] = r.status === "fulfilled"
       ? r.value
