@@ -16,6 +16,11 @@ const ROTULOS_COLUNA = { tmea: "Intervalo antes (TMEA)" };
 
 /** Dados carregados por sistema + ordenação atual da tabela. */
 const estado = {};
+/** Resumo dos últimos dias por sistema (GET /ext/widget/resumo) ou { erro }. */
+const resumo = {};
+const RESUMO_DIAS = [7, 15, 30];
+const RESUMO_KEY = "sebratelResumoDias";
+let resumoDias = 7;
 
 function fmt(seg) {
   if (seg === null || seg === undefined) return "—";
@@ -257,12 +262,146 @@ function desenharSecao(sis) {
   );
 }
 
+function hm(s) {
+  if (s === null || s === undefined) return "—";
+  s = Math.round(s);
+  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}`;
+}
+
+const SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
+/** Cabeçalho de um dia: "qua" em cima, "24/09" (ou "hoje") embaixo. */
+function thDia(dia, hoje) {
+  const [a, m, d] = dia.split("-").map(Number);
+  const semana = SEMANA[new Date(a, m - 1, d).getDay()];
+  return el("th", { scope: "col", class: "metric" }, el("span", { class: "dia-semana", text: semana }), dia === hoje ? "hoje" : `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}`);
+}
+
+/**
+ * Itens da tabela, na ordem pedida: TMA, TME, tempo logado Native, tempo logado Matrix, tempo em
+ * pausa e atendimentos. Com os dois sistemas, TMA/TME/pausa/atendimentos aparecem um por sistema.
+ */
+function itensResumo(ativos) {
+  const suf = (s) => (ativos.length > 1 ? ` · ${s.titulo}` : "");
+  const itens = [];
+  const tempo = (chave) => ativos.forEach((s, i) => itens.push({ sis: s, tipo: "tempo", chave, rotulo: `${ROTULOS[chave]}${suf(s)}`, grupo: i === 0 }));
+  tempo("tma");
+  tempo("tme");
+  ativos.filter((s) => resumo[s.chave].temLogado).forEach((s, i) => itens.push({ sis: s, tipo: "logado", rotulo: `Tempo logado ${s.titulo}`, grupo: i === 0 }));
+  ativos.filter((s) => resumo[s.chave].temPausa).forEach((s, i) => itens.push({ sis: s, tipo: "pausa", rotulo: `Tempo em pausa${suf(s)}`, grupo: i === 0 }));
+  ativos.forEach((s, i) => itens.push({ sis: s, tipo: "atendimentos", rotulo: `Atendimentos${suf(s)}`, grupo: i === 0 }));
+  return itens;
+}
+
+/** Célula de um item: um dia (`d` = linha do dia, ou undefined sem atividade) ou uma média (`m`). */
+function celulaResumo(item, r, { d, m, titulo }) {
+  const meta = r.metas?.[item.chave];
+  if (item.tipo === "tempo") {
+    const v = d ? d.tempos?.[item.chave]?.segundosMedios : m?.tempos?.[item.chave];
+    const td = el("td", { class: `metric ${v === null || v === undefined ? "empty" : meta ? (v <= meta ? "ok" : "bad") : ""}`, text: fmt(v) });
+    const n = d?.tempos?.[item.chave]?.amostras;
+    td.title = [titulo, n ? `${n} atendimento(s) com esse tempo` : null, meta ? `limite ${fmt(meta)}` : null].filter(Boolean).join(" · ");
+    return td;
+  }
+  if (item.tipo === "atendimentos") {
+    const v = d ? d.atendimentos : m?.atendimentos;
+    const txt = v === null || v === undefined ? "—" : d ? String(v) : v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+    return el("td", { class: `metric${txt === "—" ? " empty" : ""}`, title: titulo || "", text: txt });
+  }
+  const v = d ? d[item.tipo === "logado" ? "logadoSegundos" : "pausaSegundos"] : m?.[item.tipo === "logado" ? "logadoSegundos" : "pausaSegundos"];
+  const est = d && item.tipo === "logado" && d.estimadoSegundos > 0;
+  const td = el("td", { class: `metric${v === null || v === undefined ? " empty" : ""}`, text: `${est ? "≈" : ""}${hm(v)}` });
+  td.title = [titulo, est ? `inclui ${hm(d.estimadoSegundos)} da sessão atual, estimada pela atividade (a Native só grava a sessão no logoff)` : null].filter(Boolean).join(" · ");
+  return td;
+}
+
+function desenharResumo() {
+  const card = $("resumo");
+  card.innerHTML = "";
+  const chips = el("span", { class: "chips", role: "group", "aria-label": "Período" });
+  for (const n of RESUMO_DIAS) {
+    const b = el("button", { type: "button", class: "chip", "aria-pressed": String(n === resumoDias), text: `${n} dias` });
+    b.addEventListener("click", () => {
+      if (n === resumoDias) return;
+      resumoDias = n;
+      try {
+        chrome.storage.local.set({ [RESUMO_KEY]: n });
+      } catch {
+        /* só conveniência */
+      }
+      carregarResumo(alvoAtual).catch(() => {});
+    });
+    chips.append(b);
+  }
+  card.append(el("div", { class: "section-head" }, el("div", { class: "section-marker", text: `Resumo dos últimos ${resumoDias} dias` }), chips));
+
+  const respostas = SISTEMAS.map((s) => resumo[s.chave]);
+  if (respostas.every((r) => !r)) {
+    card.append(el("p", { class: "muted", text: "Carregando…" }));
+    return;
+  }
+  const ativos = SISTEMAS.filter((s) => resumo[s.chave] && !resumo[s.chave].erro && resumo[s.chave].linhas.length);
+  if (!ativos.length) {
+    const erro = respostas.find((r) => r?.erro)?.erro;
+    card.append(el(erro ? "div" : "p", { class: erro ? "error" : "muted", text: erro || "Nenhuma atividade no período." }));
+    return;
+  }
+  const hoje = resumo[ativos[0].chave].hoje;
+  const dias = [...new Set(ativos.flatMap((s) => resumo[s.chave].linhas.map((l) => l.dia)))].sort();
+  const porDia = Object.fromEntries(ativos.map((s) => [s.chave, Object.fromEntries(resumo[s.chave].linhas.map((l) => [l.dia, l]))]));
+
+  const head = el("tr", {}, el("th", { scope: "col", text: "Item" }), ...dias.map((d) => thDia(d, hoje)),
+    el("th", { scope: "col", class: "metric media", text: "Sua média" }),
+    el("th", { scope: "col", class: "metric media", text: "Média do setor" }));
+  const tbody = el("tbody");
+  for (const item of itensResumo(ativos)) {
+    const r = resumo[item.sis.chave];
+    const ref = r.setor;
+    const grupoRef = ref.setor ? `setor ${ref.setor}` : "operação";
+    const tr = el("tr", { class: item.grupo ? "grupo" : "" }, el("td", { class: "item", text: item.rotulo }));
+    for (const dia of dias) tr.append(celulaResumo(item, r, { d: porDia[item.sis.chave][dia] || null, titulo: dia === hoje ? "hoje, até agora" : dia.split("-").reverse().join("/") }));
+    const tdVoce = celulaResumo(item, r, { m: r.voce, titulo: "Sua média no período" });
+    const tdSetor = celulaResumo(item, r, { m: ref, titulo: `Média de ${ref.atendentes} colega(s) do ${grupoRef} (${item.sis.titulo}) no mesmo período` });
+    tdVoce.classList.add("media");
+    tdSetor.classList.add("media");
+    tr.append(tdVoce, tdSetor);
+    tbody.append(tr);
+  }
+  const wrap = el("div", { class: "table-wrap" });
+  wrap.append(el("table", {}, el("thead", {}, head), tbody));
+  card.append(wrap);
+  const setores = ativos.map((s) => `${s.titulo}: ${resumo[s.chave].setor.setor || "operação toda"} (${resumo[s.chave].setor.atendentes} colega(s))`).join(" · ");
+  card.append(el("p", {
+    class: "legend",
+    text: "Cada coluna é um dia com atividade (dias sem atendimento nem login não aparecem). " +
+      "As médias não contam hoje (dia em andamento). Sua média: atendimentos por dia com atendimento, TMA/TME sobre todos os atendimentos do período, pausa por dia com atendimento e tempo logado por dia com login. " +
+      `Média do setor: a mesma conta para cada colega do seu setor no mesmo período, cada um pesando igual — ${setores}. ` +
+      "Tempo em pausa: pausas encerradas, no dia em que começaram. ≈: a Native só grava a sessão no logoff; a de hoje é estimada da primeira ligação ou pausa depois do último logoff. " +
+      "TMA/TME: verde dentro do limite, vermelho acima.",
+  }));
+}
+
+let alvoAtual = "";
+
+async function carregarResumo(alvo) {
+  for (const s of SISTEMAS) delete resumo[s.chave];
+  desenharResumo();
+  const q = `?dias=${resumoDias}${alvo ? `&atendente=${encodeURIComponent(alvo)}` : ""}`;
+  const res = await Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), `/ext/widget/resumo${q}`)));
+  res.forEach((r, i) => {
+    resumo[SISTEMAS[i].chave] = r.status === "fulfilled" ? r.value : { erro: r.reason?.message || "Dados indisponíveis" };
+  });
+  desenharResumo();
+}
+
 async function carregar() {
   const btn = $("atualizar-btn");
   btn.disabled = true;
   btn.textContent = "Atualizando…";
   const cfg = await SebratelApi.getConfig();
   const alvo = new URLSearchParams(location.search).get("atendente") || cfg.viewingAgent || "";
+  alvoAtual = alvo;
+  const pedidoResumo = carregarResumo(alvo).catch(() => {});
 
   const secoes = $("secoes");
   if (!secoes.children.length) {
@@ -283,6 +422,7 @@ async function carregar() {
     desenharSecao(sis);
   });
 
+  await pedidoResumo;
   const agora = new Date().toLocaleTimeString("pt-BR");
   $("quem").textContent = nome
     ? `${nome}${alvo ? " (visão de administrador)" : ""} · atualizado às ${agora}`
@@ -326,6 +466,9 @@ $("busca").addEventListener("input", () => {
   for (const s of SISTEMAS) if (estado[s.chave]?.dados) desenharSecao(s.chave);
 });
 
-carregar().catch((err) => {
-  $("quem").textContent = err.message;
+chrome.storage.local.get([RESUMO_KEY], (r) => {
+  if (RESUMO_DIAS.includes(r?.[RESUMO_KEY])) resumoDias = r[RESUMO_KEY];
+  carregar().catch((err) => {
+    $("quem").textContent = err.message;
+  });
 });

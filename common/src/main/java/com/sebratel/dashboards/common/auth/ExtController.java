@@ -3,6 +3,7 @@ package com.sebratel.dashboards.common.auth;
 import com.sebratel.dashboards.common.auth.UsuarioRepository.Usuario;
 import com.sebratel.dashboards.common.cache.ClienteAlias;
 import com.sebratel.dashboards.common.cache.ReferenciaMensalJob;
+import com.sebratel.dashboards.common.cache.ResumoDiario;
 import com.sebratel.dashboards.common.cache.TemposAtendenteCache;
 import com.sebratel.dashboards.common.cache.TemposHojeJob;
 import com.sebratel.dashboards.common.config.TableGroupProperties;
@@ -48,12 +49,13 @@ public class ExtController {
     private final ClienteAlias clienteAlias;
     private final ReferenciaMensalJob referencia;
     private final CorrespondenciaNomes correspondencia;
+    private final ResumoDiario resumoDiario;
 
     public ExtController(UsuarioRepository usuarios, SemanticService semantic,
                          TemposAtendenteCache temposCache, TableGroupProperties groupProperties,
                          TemposHojeJob temposHoje, SuporteService suporte, WidgetProperties widgetProperties,
                          ClienteAlias clienteAlias, ReferenciaMensalJob referencia,
-                         CorrespondenciaNomes correspondencia) {
+                         CorrespondenciaNomes correspondencia, ResumoDiario resumoDiario) {
         this.usuarios = usuarios;
         this.semantic = semantic;
         this.temposCache = temposCache;
@@ -64,6 +66,7 @@ public class ExtController {
         this.clienteAlias = clienteAlias;
         this.referencia = referencia;
         this.correspondencia = correspondencia;
+        this.resumoDiario = resumoDiario;
     }
 
     @GetMapping("/ext/me")
@@ -212,6 +215,32 @@ public class ExtController {
         resp.put("linhas", linhas);
         resp.put("truncado", linhas.size() >= widgetProperties.getDetalheLimite());
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
+        return resp;
+    }
+
+    /**
+     * "Resumo dos últimos dias" of the atendimentos page: per day of the last {@code dias} days with
+     * activity, calls, TMA/TME…, time in pause and time logged in this system, plus the person's own
+     * averages ({@code voce}) and the sector's ({@code setor}: mean of the colleagues of the same sector,
+     * each weighing the same). Same visibility rule as {@link #widget}.
+     */
+    @GetMapping("/ext/widget/resumo")
+    public Map<String, Object> resumo(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
+                                      @RequestParam(required = false) String atendente,
+                                      @RequestParam(defaultValue = "7") int dias) {
+        Usuario u = usuarios.find(email);
+        List<String> nomes = resolverAlvo(u, atendente);
+        Map<String, Object> dados = resumoDiario.resumo(nomes, Math.max(1, Math.min(dias, ResumoDiario.MAX_DIAS)),
+                referencia::setor);
+        if (dados == null) {
+            throw new AuthException(503, "O resumo ainda está sendo calculado. Tente em alguns minutos.");
+        }
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("sistema", groupProperties.groupName());
+        resp.put("atendente", nomes.get(0));
+        resp.put("nomes", nomes);
+        resp.put("metas", metas());
+        resp.putAll(dados);
         return resp;
     }
 

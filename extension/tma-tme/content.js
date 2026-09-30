@@ -58,7 +58,7 @@
       <div class="header">
         <span><span class="status-dot"></span><span class="brand">Sebratel</span><span class="brand-system"> · TMA/TME</span></span>
         <span class="header-actions">
-          <button type="button" class="hbtn table-btn" title="Tabela completa de atendimentos de hoje">${ICON_TABELA}</button>
+          <button type="button" class="hbtn table-btn" title="Resumo dos últimos dias e atendimentos de hoje">${ICON_TABELA}</button>
           <button type="button" class="hbtn pin-btn" aria-pressed="false">${ICON_PIN}</button>
           <button type="button" class="hbtn close-btn" title="Fechar">&times;</button>
         </span>

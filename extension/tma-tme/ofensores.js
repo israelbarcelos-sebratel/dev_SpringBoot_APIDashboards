@@ -27,6 +27,11 @@ const PREFS_KEY = "sebratelOfensores";
 const dados = {}; // "periodo:sistema" -> resposta ou { erro }
 /** Pares de nomes Native <-> Matrix em vigor (tela "Relacionar nomes"): { native: Map, matrix: Map }. */
 let correspondencia = null;
+/** Linhas abertas (▸) na aba Pausas, por nome: continuam abertas quando os dados se atualizam. */
+const expandidos = new Set();
+/** Atualização automática que chegou enquanto a pessoa mexia num filtro: aplicada quando ela sair dele. */
+let redesenhoPendente = false;
+let ultimaCarga = 0;
 // minimo por período: 3 atendimentos num dia não é o mesmo que 3 em 30 dias.
 let prefs = {
   periodo: "hoje",
@@ -35,6 +40,7 @@ let prefs = {
   minimos: { hoje: 3, "30d": 20, "nova-hoje": 3, "nova-30d": 20, "pausas-hoje": 1, "pausas-30d": 20 },
   setor: "",
   todos: false,
+  ordem: {}, // tabela -> { col, dir }: coluna escolhida no cabeçalho (sem = ordem padrão da tabela)
 };
 /** Chave dos dados/mínimo: "hoje", "30d", "nova-hoje" ou "nova-30d". */
 const temSubPeriodo = () => prefs.periodo === "nova" || prefs.periodo === "pausas";
@@ -71,6 +77,62 @@ function salvarPrefs() {
 }
 
 /**
+ * Ordena pela coluna escolhida no cabeçalho da `tabela` (antes de cortar os N primeiros, para o corte
+ * pegar os certos). Vazios sempre no fim; sem escolha, fica a ordem padrão.
+ * Coluna: { chave, titulo, valor(linha) -> número|texto|null, texto?, inicial? }.
+ */
+function ordenar(linhas, tabela, colunas) {
+  const o = prefs.ordem?.[tabela];
+  const c = o && colunas.find((x) => x.chave === o.col && x.valor);
+  if (!c) return linhas;
+  const dir = o.dir === "asc" ? 1 : -1;
+  const vazio = (v) => v === null || v === undefined || v === "" || (typeof v === "number" && !Number.isFinite(v));
+  return [...linhas].sort((a, b) => {
+    const va = c.valor(a);
+    const vb = c.valor(b);
+    if (vazio(va) || vazio(vb)) return vazio(va) === vazio(vb) ? 0 : vazio(va) ? 1 : -1;
+    return (typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb), "pt-BR")) * dir;
+  });
+}
+
+/** Direção do 1º clique: números do maior para o menor, textos de A a Z. */
+const direcaoInicial = (c) => c.inicial || (c.texto ? "asc" : "desc");
+
+/** Cabeçalho clicável: 1º clique ordena, 2º inverte, 3º volta à ordem padrão da tabela. */
+function cabecalho(tabela, colunas) {
+  const o = prefs.ordem?.[tabela];
+  return el("tr", {}, ...colunas.map((c) => {
+    const th = el("th", { scope: "col", class: c.classe || "", text: c.titulo });
+    if (!c.valor) {
+      th.style.cursor = "default";
+      return th;
+    }
+    const ativa = o?.col === c.chave;
+    if (ativa) th.setAttribute("aria-sort", o.dir === "asc" ? "ascending" : "descending");
+    th.tabIndex = 0;
+    th.title = ativa && o.dir !== direcaoInicial(c) ? "Clique para voltar à ordem padrão" : `Ordenar por ${c.titulo || "esta coluna"}`;
+    const clicar = () => {
+      const ini = direcaoInicial(c);
+      const ordem = { ...(prefs.ordem || {}) };
+      if (!ativa) ordem[tabela] = { col: c.chave, dir: ini };
+      else if (o.dir === ini) ordem[tabela] = { col: c.chave, dir: ini === "asc" ? "desc" : "asc" };
+      else delete ordem[tabela];
+      prefs.ordem = ordem;
+      salvarPrefs();
+      redesenharMantendo(false);
+    };
+    th.addEventListener("click", clicar);
+    th.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        clicar();
+      }
+    });
+    return th;
+  }));
+}
+
+/**
  * Ranking de uma métrica: quem tem ao menos `minimo` atendimentos hoje, do pior para o melhor.
  * TMA/TME: pelo valor (o limite é o mesmo para todos). TMEA: pela diferença para a média do setor;
  * sem referência, pelo valor, depois dos que têm.
@@ -99,6 +161,7 @@ function ranking(resp, metrica) {
     const cy = metrica === "tmea" && y.excesso !== null ? y.excesso : y.valor;
     return cy - cx;
   });
+  linhas.forEach((l, i) => (l.pos = i + 1)); // "#" = posição na ordem padrão (pior primeiro)
   return { meta, linhas };
 }
 
@@ -134,9 +197,18 @@ function cardMetrica(resp, m) {
     card.append(el("p", { class: "muted", text: `Ninguém com ${minimo()} ou mais atendimentos ${PERIODOS[prefs.periodo].quando}.` }));
     return card;
   }
-  const visiveis = prefs.todos ? linhas : linhas.slice(0, TOP);
+  const tabela = `rank-${m.chave}`;
+  const colunas = [
+    { chave: "pos", titulo: "#", inicial: "asc", valor: (l) => l.pos },
+    { chave: "nome", titulo: "Atendente", texto: true, valor: (l) => l.a.nome },
+    { chave: "valor", titulo: m.titulo, classe: "metric", valor: (l) => l.valor },
+    { chave: "dif", titulo: m.chave === "tmea" ? "vs. setor" : "vs. limite", classe: "metric", valor: (l) => l.excesso },
+    { chave: "n", titulo: "Atend.", classe: "metric", valor: (l) => l.a.atendimentos },
+  ];
+  const ordenadas = ordenar(linhas, tabela, colunas);
+  const visiveis = prefs.todos ? ordenadas : ordenadas.slice(0, TOP);
   const tbody = el("tbody");
-  visiveis.forEach((l, i) => {
+  visiveis.forEach((l) => {
     const excedeu = l.excesso !== null && l.excesso > 0;
     const classe = l.excesso === null ? "" : excedeu ? (m.chave === "tmea" ? "warn" : "bad") : "ok";
     const [pessoa, setor] = separarSetor(l.a);
@@ -161,7 +233,7 @@ Abrir os atendimentos de hoje dessa pessoa` },
     }
     tbody.append(
       el("tr", {},
-        el("td", { class: "pos", text: String(i + 1) }),
+        el("td", { class: "pos", text: String(l.pos) }),
         el("td", { class: "nome" }, nome),
         el("td", { class: "metric " + classe, text: (excedeu && m.chave !== "tmea" ? "▲ " : "") + fmt(l.valor) }),
         el("td", { class: "metric dif " + classe, title: difTitulo, text: dif }),
@@ -169,18 +241,12 @@ Abrir os atendimentos de hoje dessa pessoa` },
       )
     );
   });
-  const head = el("tr", {},
-    el("th", { scope: "col", text: "#" }),
-    el("th", { scope: "col", text: "Atendente" }),
-    el("th", { scope: "col", class: "metric", text: m.titulo }),
-    el("th", { scope: "col", class: "metric", text: m.chave === "tmea" ? "vs. setor" : "vs. limite" }),
-    el("th", { scope: "col", class: "metric", text: "Atend." })
-  );
+  const head = cabecalho(tabela, colunas);
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, head), tbody));
   card.append(wrap);
   if (!prefs.todos && linhas.length > TOP) {
-    card.append(el("p", { class: "legend", text: `Mostrando os ${TOP} piores de ${linhas.length}.` }));
+    card.append(el("p", { class: "legend", text: `Mostrando os ${TOP} ${prefs.ordem?.[tabela] ? "primeiros" : "piores"} de ${linhas.length}.` }));
   }
   return card;
 }
@@ -189,10 +255,39 @@ function desenharSetores(resp) {
   const sel = $("setor");
   const setores = [...new Set(resp.atendentes.map((a) => a.setor).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
   if (prefs.setor && !setores.includes(prefs.setor)) prefs.setor = "";
-  sel.innerHTML = "";
-  sel.append(el("option", { value: "", text: "Todos os setores" }));
-  for (const s of setores) sel.append(el("option", { value: s, text: s }));
+  // Mesmos setores: não recria as opções (fecharia a lista aberta e perderia o foco).
+  const atuais = [...sel.options].slice(1).map((o) => o.value);
+  if (atuais.length !== setores.length || atuais.some((v, i) => v !== setores[i])) {
+    sel.innerHTML = "";
+    sel.append(el("option", { value: "", text: "Todos os setores" }));
+    for (const s of setores) sel.append(el("option", { value: s, text: s }));
+  }
   sel.value = prefs.setor;
+}
+
+/** A pessoa está num filtro (lista de setor aberta, digitando o mínimo): não redesenhar agora. */
+function interagindo() {
+  const a = document.activeElement;
+  return Boolean(a && (a.id === "setor" || a.id === "minimo"));
+}
+
+/**
+ * Redesenha a aba mantendo o contexto: rolagem da página, rolagem lateral das tabelas e as linhas
+ * abertas. Na atualização automática, espera a pessoa sair do filtro em que está mexendo.
+ */
+function redesenharMantendo(automatico) {
+  if (automatico && interagindo()) {
+    redesenhoPendente = true;
+    return;
+  }
+  redesenhoPendente = false;
+  const y = window.scrollY;
+  const lateral = [...document.querySelectorAll("#rankings .table-wrap")].map((w) => w.scrollLeft);
+  desenhar();
+  document.querySelectorAll("#rankings .table-wrap").forEach((w, i) => {
+    if (lateral[i]) w.scrollLeft = lateral[i];
+  });
+  window.scrollTo(0, y);
 }
 
 function desenhar() {
@@ -293,6 +388,7 @@ function desenharNova() {
       if ((x.excesso === null) !== (y.excesso === null)) return x.excesso === null ? 1 : -1;
       return (y.excesso ?? y.valor) - (x.excesso ?? x.valor);
     });
+  linhas.forEach((l, i) => (l.pos = i + 1));
   const acima = linhas.filter((l) => l.excesso !== null && l.excesso > 0).length;
   const card = el("div", { class: "card nova" });
   card.append(el("div", { class: "rank-head" },
@@ -304,10 +400,24 @@ function desenharNova() {
     alvo.append(card);
     return;
   }
-  const visiveis = prefs.todos ? linhas : linhas.slice(0, 20);
+  const colunas = [
+    { chave: "pos", titulo: "#", inicial: "asc", valor: (l) => l.pos },
+    { chave: "nome", titulo: "Atendente", texto: true, valor: (l) => l.a.nome },
+    { chave: "n", titulo: "Atend.", classe: "metric", valor: (l) => l.a.atendimentos },
+    { chave: "atual", titulo: "TMEA atual", classe: "metric", valor: (l) => l.a.atual?.segundosMedios },
+    { chave: "nova", titulo: "TMEA regra nova", classe: "metric nova-col", valor: (l) => l.a.nova.segundosMedios },
+    { chave: "dif", titulo: "vs. setor", classe: "metric", valor: (l) => l.excesso },
+    { chave: "intervalos", titulo: "Intervalos", classe: "metric", valor: (l) => l.a.nova.intervalos },
+    { chave: "ocioso", titulo: "Ocioso total", classe: "metric", valor: (l) => l.a.nova.ociosoSegundos },
+    { chave: "pausas", titulo: "Pausas desc.", classe: "metric", valor: (l) => l.a.nova.pausaSegundos },
+    { chave: "deslogado", titulo: "Deslogado desc.", classe: "metric", valor: (l) => l.a.nova.deslogadoSegundos },
+  ];
+  if (hoje) colunas.push({ chave: "andamento", titulo: "Em andamento", classe: "metric", valor: (l) => l.a.nova.emAndamentoSegundos });
+  const ordenadas = ordenar(linhas, "nova", colunas);
+  const visiveis = prefs.todos ? ordenadas : ordenadas.slice(0, 20);
   const horas = (s) => (s >= 3600 ? `${(s / 3600).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h` : fmt(s));
   const tbody = el("tbody");
-  visiveis.forEach((l, i) => {
+  visiveis.forEach((l) => {
     const n = l.a.nova;
     const classe = l.excesso === null ? "" : l.excesso > 0 ? "warn" : "ok";
     const [pessoa, setor] = separarSetor(l.a);
@@ -319,7 +429,7 @@ function desenharNova() {
     const refTitulo = l.a.referencia ? `Média de ${l.a.referencia.atendentes} colega(s) do setor ${l.a.referencia.setor}: ${fmt(l.a.referencia.segundosMedios)}` : "Sem colegas suficientes no setor";
     const atual = l.a.atual;
     tbody.append(el("tr", {},
-      el("td", { class: "pos", text: String(i + 1) }),
+      el("td", { class: "pos", text: String(l.pos) }),
       el("td", { class: "nome" }, nome),
       el("td", { class: "metric n", text: String(l.a.atendimentos) }),
       el("td", { class: "metric atual", title: atual ? `${atual.amostras} intervalo(s) · regra oficial (corta acima de ${resp.corteAtualMinutos} min)` : "Sem intervalos pela regra oficial", text: atual ? fmt(atual.segundosMedios) : "—" }),
@@ -332,9 +442,7 @@ function desenharNova() {
       hoje ? el("td", { class: "metric n", title: "Tempo ocioso desde o fim do último atendimento (já incluído no TMEA)", text: n.emAndamentoSegundos === null || n.emAndamentoSegundos === undefined ? "—" : fmt(n.emAndamentoSegundos) }) : null
     ));
   });
-  const cols = ["#", "Atendente", "Atend.", "TMEA atual", "TMEA regra nova", "vs. setor", "Intervalos", "Ocioso total", "Pausas desc.", "Deslogado desc."];
-  if (hoje) cols.push("Em andamento");
-  const head = el("tr", {}, ...cols.map((t, i) => el("th", { scope: "col", class: i >= 2 ? (t === "TMEA regra nova" ? "metric nova-col" : "metric") : "", text: t })));
+  const head = cabecalho("nova", colunas);
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, head), tbody));
   card.append(wrap);
@@ -477,12 +585,22 @@ function cardTipos(resp) {
   const card = el("div", { class: "card pausas" },
     el("div", { class: "rank-head" }, el("div", { class: "section-marker", text: "Pausas por tipo" }),
       el("div", { class: "muted", text: "todos os atendentes do sistema no período" })));
-  const tipos = [...resp.tipos].sort((a, b) => b.dados.segundos - a.dados.segundos);
+  const prev = resp.indicadores.previsto;
+  const acimaPct = (x) => (x.previsto && x.qtd ? (100 * x.excedidas) / x.qtd : null);
+  const colunas = [
+    { chave: "tipo", titulo: "Tipo", texto: true, valor: (t) => t.tipo },
+    { chave: "qtd", titulo: "Pausas", classe: "metric", valor: (t) => t.dados.qtd },
+    { chave: "tempo", titulo: "Tempo total", classe: "metric", valor: (t) => t.dados.segundos },
+    { chave: "media", titulo: "Média", classe: "metric", valor: (t) => (t.dados.segundos && t.dados.qtd ? t.dados.segundos / t.dados.qtd : null) },
+  ].concat(prev ? [
+    { chave: "previsto", titulo: "Previsto", classe: "metric", valor: (t) => t.dados.previsto },
+    { chave: "acima", titulo: "Acima do previsto", classe: "metric", valor: (t) => acimaPct(t.dados) },
+  ] : []);
+  const tipos = ordenar([...resp.tipos].sort((a, b) => b.dados.segundos - a.dados.segundos), "tipos", colunas);
   if (!tipos.length) {
     card.append(el("p", { class: "muted", text: "Nenhuma pausa no período." }));
     return card;
   }
-  const prev = resp.indicadores.previsto;
   const tbody = el("tbody");
   for (const t of tipos) {
     const x = t.dados;
@@ -496,9 +614,8 @@ function cardTipos(resp) {
       prev ? el("td", { class: "metric", text: x.previsto ? fmt(x.previsto) : "—" }) : null,
       prev ? el("td", { class: `metric ${pct >= 30 ? "bad" : ""}`, text: x.previsto ? `${pct}%` : "—" }) : null));
   }
-  const cols = ["Tipo", "Pausas", "Tempo total", "Média"].concat(prev ? ["Previsto", "Acima do previsto"] : []);
   const wrap = el("div", { class: "table-wrap" });
-  wrap.append(el("table", {}, el("thead", {}, el("tr", {}, ...cols.map((c, i) => el("th", { scope: "col", class: i ? "metric" : "", text: c })))), tbody));
+  wrap.append(el("table", {}, el("thead", {}, cabecalho("tipos", colunas)), tbody));
   card.append(wrap);
   return card;
 }
@@ -602,8 +719,14 @@ function celulaLogado(alvo, a) {
     est ? `≈ inclui ${hm(l.estimado)} da sessão atual, estimada pela atividade (a Native só grava a sessão no logoff)` : null,
     outro ? `Como: ${l.achados.join("; ")}` : null,
   ].filter(Boolean);
-  const valor = hoje ? l.segundos : l.segundos / Math.max(1, l.dias);
-  return el("td", { class: "metric", title: linhas.join("\n"), text: `${est ? "≈" : ""}${hm(valor)}` });
+  return el("td", { class: "metric", title: linhas.join("\n"), text: `${est ? "≈" : ""}${hm(valorLogado(alvo, a))}` });
+}
+
+/** Número mostrado na célula de tempo logado (para ordenar): total hoje, média por dia com login em 30 dias. */
+function valorLogado(alvo, a) {
+  const l = logadoEm(alvo, a.nome, prefs.sistema);
+  if (!l) return null;
+  return prefs.periodoNova === "hoje" ? l.segundos : l.segundos / Math.max(1, l.dias || 1);
 }
 
 function desenharPausas() {
@@ -634,6 +757,21 @@ function desenharPausas() {
   const med = marcarAlertas(linhas, lista);
   linhas
     .sort((x, y) => y.alertas.length - x.alertas.length || y.a.dados.pausaSegundos / Math.max(1, y.a.dados.dias) - x.a.dados.pausaSegundos / Math.max(1, x.a.dados.dias));
+  linhas.forEach((l, i) => (l.pos = i + 1));
+  const porDia = (l, v) => v / Math.max(1, l.a.dados.dias);
+  const sufixo = prefs.periodoNova === "hoje" ? "" : "/dia";
+  const colunas = [
+    { chave: "abrir", titulo: "" },
+    { chave: "pos", titulo: "#", inicial: "asc", valor: (l) => l.pos },
+    { chave: "nome", titulo: "Atendente", texto: true, valor: (l) => l.a.nome },
+    { chave: "n", titulo: "Atend.", classe: "metric", valor: (l) => l.a.dados.atendimentos },
+    { chave: "pausas", titulo: "Pausas/dia", classe: "metric", valor: (l) => porDia(l, l.a.dados.pausas) },
+    { chave: "pausa", titulo: "Pausa/dia", classe: "metric", valor: (l) => porDia(l, l.a.dados.pausaSegundos) },
+    { chave: "logNative", titulo: `Logado Native${sufixo}`, classe: "metric", valor: (l) => valorLogado("native", l.a) },
+    { chave: "logMatrix", titulo: `Logado Matrix${sufixo}`, classe: "metric", valor: (l) => valorLogado("matrix", l.a) },
+    ...lista.map((g) => ({ chave: g.chave, titulo: g.nome, classe: "metric", valor: (l) => l.t[g.chave].v })),
+    { chave: "alertas", titulo: "Alertas", valor: (l) => l.alertas.length },
+  ];
 
   const card = el("div", { class: "card pausas" });
   const comAlerta = linhas.filter((l) => l.alertas.length >= 2).length;
@@ -651,8 +789,9 @@ function desenharPausas() {
   const um = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
   const ncols = 8 + lista.length + 1;
   const tbody = el("tbody");
-  const visiveis = prefs.todos ? linhas : linhas.slice(0, 30);
-  visiveis.forEach((l, i) => {
+  const ordenadas = ordenar(linhas, "pausas", colunas);
+  const visiveis = prefs.todos ? ordenadas : ordenadas.slice(0, 30);
+  visiveis.forEach((l) => {
     const x = l.a.dados;
     const d = Math.max(1, x.dias);
     const [pessoa, setor] = separarSetor(l.a);
@@ -662,7 +801,7 @@ function desenharPausas() {
     const btn = el("button", { type: "button", class: "expandir", "aria-expanded": "false", title: "Pausas por tipo e motivos", text: "▸" });
     const tr = el("tr", {},
       el("td", {}, btn),
-      el("td", { class: "pos", text: String(i + 1) }),
+      el("td", { class: "pos", text: String(l.pos) }),
       el("td", { class: "nome" }, nome),
       el("td", { class: "metric n", text: String(x.atendimentos) }),
       el("td", { class: "metric", title: `${x.pausas} pausas em ${x.dias} dia(s)`, text: um(x.pausas / d) }),
@@ -680,24 +819,27 @@ Limite ${g.limite} · mediana da operação ${medTxt}/dia`, text: texto });
       }),
       el("td", {}, el("div", { class: "alertas" }, ...l.alertas.map((g) => el("span", { class: "alerta-tag", title: g.nome, text: curtoNome[g.chave] || g.nome })))));
     let aberto = null;
-    btn.addEventListener("click", () => {
-      if (aberto) {
-        aberto.remove();
-        aberto = null;
-      } else {
+    const abrir = (sim) => {
+      if (sim && !aberto) {
         aberto = detalhePessoa(resp, l.a, ncols);
         tr.after(aberto);
+      } else if (!sim && aberto) {
+        aberto.remove();
+        aberto = null;
       }
       btn.textContent = aberto ? "▾" : "▸";
       btn.setAttribute("aria-expanded", String(Boolean(aberto)));
+    };
+    btn.addEventListener("click", () => {
+      if (aberto) expandidos.delete(l.a.nome);
+      else expandidos.add(l.a.nome);
+      abrir(!aberto);
     });
     tbody.append(tr);
+    if (expandidos.has(l.a.nome)) abrir(true);
   });
-  const sufixo = prefs.periodoNova === "hoje" ? "" : "/dia";
-  const cols = ["", "#", "Atendente", "Atend.", "Pausas/dia", "Pausa/dia", `Logado Native${sufixo}`, `Logado Matrix${sufixo}`]
-    .concat(lista.map((g) => g.nome), ["Alertas"]);
   const wrap = el("div", { class: "table-wrap" });
-  wrap.append(el("table", {}, el("thead", {}, el("tr", {}, ...cols.map((c, i) => el("th", { scope: "col", class: i >= 3 && i < cols.length - 1 ? "metric" : "", text: c })))), tbody));
+  wrap.append(el("table", {}, el("thead", {}, cabecalho("pausas", colunas)), tbody));
   card.append(wrap);
   if (!prefs.todos && linhas.length > 30) card.append(el("p", { class: "legend", text: `Mostrando os 30 primeiros de ${linhas.length}.` }));
   card.append(el("p", { class: "legend", text: "Tempo logado: soma das sessões de login no período (sessões sobrepostas contam uma vez)" +
@@ -710,10 +852,17 @@ Limite ${g.limite} · mediana da operação ${medTxt}/dia`, text: texto });
   $("sub").textContent = `${linhas.length} atendente(s) · calculado às ${calc}`;
 }
 
-async function carregar() {
+/**
+ * @param automatico atualização periódica: silenciosa, só redesenha se os dados mudaram e mantém o
+ *                   que já está na tela quando uma consulta falha
+ */
+async function carregar(automatico = false) {
   const btn = $("atualizar-btn");
-  btn.disabled = true;
-  btn.textContent = "Atualizando…";
+  if (!automatico) {
+    btn.disabled = true;
+    btn.textContent = "Atualizando…";
+  }
+  ultimaCarga = Date.now();
   const chave = chavePeriodo();
   const rota = prefs.periodo === "nova" ? `/ext/ofensores/tmea-nova?periodo=${prefs.periodoNova}`
     : prefs.periodo === "pausas" ? `/ext/ofensores/pausas?periodo=${prefs.periodoNova}`
@@ -722,14 +871,24 @@ async function carregar() {
     Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), rota))),
     prefs.periodo === "pausas" ? carregarCorrespondencia() : null,
   ]);
+  let mudou = false;
   res.forEach((r, i) => {
-    dados[`${chave}:${SISTEMAS[i].chave}`] = r.status === "fulfilled"
+    const k = `${chave}:${SISTEMAS[i].chave}`;
+    const novo = r.status === "fulfilled"
       ? r.value
       : { erro: r.reason?.status === 403 ? "Somente administradores." : r.reason?.message || "Dados indisponíveis" };
+    if (automatico && novo.erro && dados[k] && !dados[k].erro) return; // falha passageira: fica o que já está na tela
+    if (JSON.stringify(novo) !== JSON.stringify(dados[k])) {
+      dados[k] = novo;
+      mudou = true;
+    }
   });
-  desenhar();
-  btn.disabled = false;
-  btn.textContent = "Atualizar";
+  // Outra aba/período escolhido durante a consulta: os dados ficam guardados, a tela é daquele.
+  if (chave === chavePeriodo() && (mudou || !automatico)) redesenharMantendo(automatico);
+  if (!automatico) {
+    btn.disabled = false;
+    btn.textContent = "Atualizar";
+  }
 }
 
 for (const b of document.querySelectorAll(".chip[data-sistema]")) {
@@ -787,5 +946,15 @@ chrome.storage.local.get([PREFS_KEY], (r) => {
     $("sub").textContent = err.message;
   });
 });
-// Os números de hoje mudam a cada minuto no servidor.
-setInterval(() => carregar().catch(() => {}), 60_000);
+// Hoje é recalculado no servidor a cada minuto; 30 dias, a cada 10 minutos. Com a aba em segundo
+// plano não consulta — ao voltar, atualiza se já passou o intervalo.
+const intervalo = () => (chavePeriodo().endsWith("30d") ? 600_000 : 60_000);
+function atualizarSeVenceu() {
+  if (!document.hidden && Date.now() - ultimaCarga >= intervalo()) carregar(true).catch(() => {});
+}
+setInterval(atualizarSeVenceu, 15_000);
+document.addEventListener("visibilitychange", atualizarSeVenceu);
+// Saiu do filtro com uma atualização esperando: aplica agora.
+document.addEventListener("focusout", () => setTimeout(() => {
+  if (redesenhoPendente && !interagindo()) redesenharMantendo(true);
+}, 0));
