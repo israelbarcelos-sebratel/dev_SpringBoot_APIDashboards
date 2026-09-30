@@ -85,5 +85,27 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Análise das ligações (Whisper local). Aqui com porta no host para testar: http://localhost:18000/saude
+  # Ex.: curl -X POST localhost:18000/analises -H 'Content-Type: application/json' -d '{"limite": 10}'
+  analise-ligacoes:
+    build: ./analise-ligacoes
+    image: analise-ligacoes:local
+    container_name: analise-ligacoes
+    ports:
+      - "18000:8000"
+    env_file: .env
+    environment:
+      <<: *app-db-env
+      WORKERS: "${ANALISE_WORKERS:-2}"
+      THREADS: "${ANALISE_THREADS:-3}"
+      MODELO: "${ANALISE_MODELO:-medium}"
+    volumes:
+      - whisper-modelos:/modelos
+    depends_on:
+      app-db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   app-db-data:
+  whisper-modelos:
