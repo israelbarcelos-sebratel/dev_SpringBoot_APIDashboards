@@ -63,6 +63,16 @@ public class WidgetProperties {
         this.detalhe = detalhe;
     }
 
+    private Comportamento comportamento = new Comportamento();
+
+    public Comportamento getComportamento() {
+        return comportamento;
+    }
+
+    public void setComportamento(Comportamento comportamento) {
+        this.comportamento = comportamento;
+    }
+
     public Tmea getTmea() {
         return tmea;
     }
@@ -200,6 +210,25 @@ public class WidgetProperties {
         private String formula;
         private int maxIntervaloMinutos = 60;
         private int diasReferencia = 30;
+        /** Regra nova (em teste): pausas e sessões de login descontadas do intervalo, sem o corte de 60 min. */
+        private Registros pausas = new Registros();
+        private Registros sessoes = new Registros();
+
+        public Registros getPausas() {
+            return pausas;
+        }
+
+        public void setPausas(Registros pausas) {
+            this.pausas = pausas;
+        }
+
+        public Registros getSessoes() {
+            return sessoes;
+        }
+
+        public void setSessoes(Registros sessoes) {
+            this.sessoes = sessoes;
+        }
 
         public boolean configurado() {
             return inicio != null && !inicio.isBlank() && fim != null && !fim.isBlank();
@@ -243,6 +272,164 @@ public class WidgetProperties {
 
         public void setDiasReferencia(int diasReferencia) {
             this.diasReferencia = diasReferencia;
+        }
+    }
+
+    /**
+     * Time ranges of an atendente in another table (pauses, login sessions): {@code agente} column with
+     * the same names as the calls, {@code inicio}/{@code fim} DATETIME columns ({@code fim} NULL = still
+     * open) and an optional extra WHERE condition ({@code filtro}, e.g. {@code evento = 'Pausa'}).
+     */
+    public static class Registros {
+        private String tabela;
+        private String agente;
+        private String inicio;
+        private String fim;
+        private String filtro;
+
+        public boolean configurado() {
+            return tabela != null && !tabela.isBlank() && agente != null && inicio != null && fim != null;
+        }
+
+        public String getTabela() {
+            return tabela;
+        }
+
+        public void setTabela(String tabela) {
+            this.tabela = tabela;
+        }
+
+        public String getAgente() {
+            return agente;
+        }
+
+        public void setAgente(String agente) {
+            this.agente = agente;
+        }
+
+        public String getInicio() {
+            return inicio;
+        }
+
+        public void setInicio(String inicio) {
+            this.inicio = inicio;
+        }
+
+        public String getFim() {
+            return fim;
+        }
+
+        public void setFim(String fim) {
+            this.fim = fim;
+        }
+
+        public String getFiltro() {
+            return filtro;
+        }
+
+        public void setFiltro(String filtro) {
+            this.filtro = filtro;
+        }
+    }
+
+    /**
+     * Admin tab "Pausas e comportamentos": {@code pausasSql} is a SELECT returning one row per pause
+     * with the columns {@code agente}, {@code ini} and {@code fim} (epoch seconds; fim NULL = not
+     * recorded), {@code tipo} and {@code previsto} (expected seconds, NULL when the system has none),
+     * with {@code {desde}} standing for the window's start (a DATE expression). {@code curtosCondicao}
+     * is a WHERE condition on the calls table marking "atendimento curto encerrado pelo atendente",
+     * described to the admin by {@code curtosRotulo}. {@code tipoPrefixo} is a regex stripped from the
+     * pause type for display (Matrix: "17295-SEBRATEL-TOALET").
+     */
+    public static class Comportamento {
+        private String pausasSql;
+        private String curtosCondicao;
+        private String curtosRotulo;
+        private String tipoPrefixo;
+        /** Optional SELECT (agente, ini epoch, tipo) with the pause types when {@code pausasSql} has none (Native). */
+        private String tiposSql;
+        /** WHERE condition on the calls: transferred by the atendente. */
+        private String transferidasCondicao;
+        /** WHERE condition on the calls: call to an internal extension; {@code internasSegundos} = its duration. */
+        private String internasCondicao;
+        private String internasSegundos;
+        /** "Segurar a linha" (calls far above the TMA limit): off where conversations run in parallel (chat). */
+        private boolean longasAtivo = true;
+
+        public boolean isLongasAtivo() {
+            return longasAtivo;
+        }
+
+        public void setLongasAtivo(boolean longasAtivo) {
+            this.longasAtivo = longasAtivo;
+        }
+
+        public String getTiposSql() {
+            return tiposSql;
+        }
+
+        public void setTiposSql(String tiposSql) {
+            this.tiposSql = tiposSql;
+        }
+
+        public String getTransferidasCondicao() {
+            return transferidasCondicao;
+        }
+
+        public void setTransferidasCondicao(String transferidasCondicao) {
+            this.transferidasCondicao = transferidasCondicao;
+        }
+
+        public String getInternasCondicao() {
+            return internasCondicao;
+        }
+
+        public void setInternasCondicao(String internasCondicao) {
+            this.internasCondicao = internasCondicao;
+        }
+
+        public String getInternasSegundos() {
+            return internasSegundos;
+        }
+
+        public void setInternasSegundos(String internasSegundos) {
+            this.internasSegundos = internasSegundos;
+        }
+
+        public boolean configurado() {
+            return pausasSql != null && !pausasSql.isBlank();
+        }
+
+        public String getPausasSql() {
+            return pausasSql;
+        }
+
+        public void setPausasSql(String pausasSql) {
+            this.pausasSql = pausasSql;
+        }
+
+        public String getCurtosCondicao() {
+            return curtosCondicao;
+        }
+
+        public void setCurtosCondicao(String curtosCondicao) {
+            this.curtosCondicao = curtosCondicao;
+        }
+
+        public String getCurtosRotulo() {
+            return curtosRotulo;
+        }
+
+        public void setCurtosRotulo(String curtosRotulo) {
+            this.curtosRotulo = curtosRotulo;
+        }
+
+        public String getTipoPrefixo() {
+            return tipoPrefixo;
+        }
+
+        public void setTipoPrefixo(String tipoPrefixo) {
+            this.tipoPrefixo = tipoPrefixo;
         }
     }
 }
