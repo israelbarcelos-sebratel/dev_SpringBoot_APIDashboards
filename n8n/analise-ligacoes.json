@@ -70,7 +70,10 @@
       "position": [
         480,
         100
-      ]
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Erro aqui (409 = outro dia ainda processando, ou container reiniciando) não para o fluxo: espera 5 min e tenta de novo.",
+      "notesInFlow": false
     },
     {
       "parameters": {
@@ -108,7 +111,10 @@
       "position": [
         960,
         100
-      ]
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Erro aqui (409 = outro dia ainda processando, ou container reiniciando) não para o fluxo: espera 5 min e tenta de novo.",
+      "notesInFlow": false
     },
     {
       "parameters": {
