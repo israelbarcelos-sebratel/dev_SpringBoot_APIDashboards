@@ -262,7 +262,7 @@ async function carregar() {
   btn.disabled = true;
   btn.textContent = "Atualizando…";
   const cfg = await SebratelApi.getConfig();
-  const alvo = cfg.viewingAgent || "";
+  const alvo = new URLSearchParams(location.search).get("atendente") || cfg.viewingAgent || "";
 
   const secoes = $("secoes");
   if (!secoes.children.length) {

@@ -134,6 +134,8 @@
     .msg.ok { background: var(--success-subtle-bg); color: var(--success-text); }
     .view { display: none; }
     .footer-actions { display: flex; justify-content: center; }
+    label.check { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 12.5px; color: var(--text-secondary); margin: 2px 0 10px; cursor: pointer; }
+    label.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary-color); }
     details summary {
       cursor: pointer; list-style: none;
       font-size: 13.5px; font-weight: 600; color: var(--text-primary);
@@ -206,12 +208,16 @@
         </select>
         <button id="mg-save" class="btn btn-secondary">Salvar usuário</button>
 
+        <div class="section-marker" style="margin-top:6px">Equipe</div>
+        <button id="ofensores-btn" class="btn btn-secondary">Maiores ofensores de hoje (TME, TMA, TMEA)</button>
+
         <div class="section-marker" style="margin-top:6px">Nomes Matrix ↔ Native</div>
         <button id="corr-btn" class="btn btn-secondary">Relacionar nomes Matrix ↔ Native</button>
       </div>
 
       <button id="detalhe-btn" class="btn btn-secondary">Ver tabela completa de hoje</button>
-      <button id="show-btn" class="btn btn-secondary">Reexibir widget</button>
+      <button id="show-btn" class="btn btn-secondary">Mostrar widget nesta aba</button>
+      <label class="check"><input type="checkbox" id="auto-abrir" /> Abrir o widget automaticamente em novas abas</label>
       <div class="footer-actions"><button id="logout-btn" class="btn btn-ghost">Sair</button></div>
     </div>
   </main>

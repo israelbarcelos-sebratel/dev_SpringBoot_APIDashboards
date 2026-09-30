@@ -93,6 +93,13 @@ public class ReferenciaMensalJob {
                 widget.getTmea().getDiasReferencia());
     }
 
+    /** Sector label of an atendente name ("Financeiro"), or null when it has none / not seen in the period. */
+    public String setor(String nome) {
+        Dados d = dados;
+        String setor = d.setores().get(nome);
+        return setor == null ? null : rotulo(d, setor);
+    }
+
     /**
      * Calls from the 1st of the month until yesterday, for these names combined; null if the numbers
      * aren't for {@code hoje} ("YYYY-MM-DD", the DB date of today's snapshot) — right after midnight,
