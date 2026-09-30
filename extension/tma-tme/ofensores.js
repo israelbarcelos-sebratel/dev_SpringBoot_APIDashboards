@@ -19,13 +19,25 @@ const TOP = 10;
 const PERIODOS = {
   hoje: { titulo: "hoje", quando: "hoje", minimo: 3 },
   "30d": { titulo: "últimos 30 dias", quando: "nos últimos 30 dias", minimo: 20 },
+  nova: { titulo: "TMEA pela regra nova", quando: "no período", minimo: 3 },
+  pausas: { titulo: "pausas e comportamentos", quando: "no período", minimo: 1 },
 };
 const PREFS_KEY = "sebratelOfensores";
 
 const dados = {}; // "periodo:sistema" -> resposta ou { erro }
 // minimo por período: 3 atendimentos num dia não é o mesmo que 3 em 30 dias.
-let prefs = { periodo: "hoje", sistema: "native", minimos: { hoje: 3, "30d": 20 }, setor: "", todos: false };
-const minimo = () => prefs.minimos[prefs.periodo] ?? PERIODOS[prefs.periodo].minimo;
+let prefs = {
+  periodo: "hoje",
+  periodoNova: "hoje", // período dentro da aba "TMEA · regra nova"
+  sistema: "native",
+  minimos: { hoje: 3, "30d": 20, "nova-hoje": 3, "nova-30d": 20, "pausas-hoje": 1, "pausas-30d": 20 },
+  setor: "",
+  todos: false,
+};
+/** Chave dos dados/mínimo: "hoje", "30d", "nova-hoje" ou "nova-30d". */
+const temSubPeriodo = () => prefs.periodo === "nova" || prefs.periodo === "pausas";
+const chavePeriodo = () => (temSubPeriodo() ? `${prefs.periodo}-${prefs.periodoNova}` : prefs.periodo);
+const minimo = () => prefs.minimos[chavePeriodo()] ?? (chavePeriodo().endsWith("30d") ? 20 : 3);
 
 function fmt(seg) {
   if (seg === null || seg === undefined) return "—";
@@ -185,8 +197,19 @@ function desenhar() {
   const per = PERIODOS[prefs.periodo];
   for (const b of document.querySelectorAll(".chip[data-sistema]")) b.setAttribute("aria-pressed", String(b.dataset.sistema === prefs.sistema));
   for (const b of document.querySelectorAll(".periodo")) b.setAttribute("aria-selected", String(b.dataset.periodo === prefs.periodo));
-  $("titulo").textContent = `Maiores ofensores · ${per.titulo}`;
+  $("titulo").textContent = prefs.periodo === "nova" ? "TMEA · regra nova (em teste)"
+    : prefs.periodo === "pausas" ? "Pausas e comportamentos estranhos" : `Maiores ofensores · ${per.titulo}`;
   $("minimo").value = minimo();
+  $("nova-periodos").hidden = !temSubPeriodo();
+  for (const b of document.querySelectorAll(".chip[data-nova]")) b.setAttribute("aria-pressed", String(b.dataset.nova === prefs.periodoNova));
+  if (prefs.periodo === "nova") {
+    desenharNova();
+    return;
+  }
+  if (prefs.periodo === "pausas") {
+    desenharPausas();
+    return;
+  }
   $("legenda").textContent =
     (prefs.periodo === "hoje"
       ? "Mesmos números que cada atendente vê no widget, só de hoje — no começo do dia poucos atendimentos entraram, por isso o mínimo. "
@@ -195,7 +218,7 @@ function desenhar() {
     "Clique no nome para ver os atendimentos de hoje da pessoa.";
   const alvo = $("rankings");
   alvo.innerHTML = "";
-  const resp = dados[`${prefs.periodo}:${prefs.sistema}`];
+  const resp = dados[`${chavePeriodo()}:${prefs.sistema}`];
   if (!resp) {
     $("sub").textContent = "Carregando…";
     return;
@@ -215,14 +238,410 @@ function desenhar() {
     : `${resp.atendentes.length} atendente(s) · ${total} atendimentos nos últimos ${resp.dias} dias · calculado às ${calc}`;
 }
 
+/** Card fixo no topo da aba: o que a regra nova faz, passo a passo, e no que difere da oficial. */
+function cardRegras(resp) {
+  const corte = resp?.corteAtualMinutos ?? 60;
+  const andamento = resp?.maxAndamentoMinutos ?? 120;
+  const matrix = prefs.sistema === "matrix";
+  const li = (titulo, texto) => el("li", {}, el("b", { text: titulo + " " }), texto);
+  return el("div", { class: "card regras" },
+    el("h2", { text: "Como estes números são calculados" }),
+    el("ol", {},
+      li("Intervalo entre atendimentos.", matrix
+        ? "Na Matrix os chats correm em paralelo, então o intervalo vai do início de um atendimento até o início do próximo, para cada atendente e dia."
+        : "Na Native, vai do fim de uma ligação (data/hora + espera + atendimento) até o atendente atender a próxima, para cada atendente e dia. Ligações que se sobrepõem (transferência) contam 0."),
+      li("Sem corte de tempo.", `A regra oficial descarta intervalos acima de ${corte} min — por isso quem atende pouco aparecia com TMEA baixo. Aqui o intervalo conta inteiro.`),
+      li("Pausas são descontadas.", `Todo tempo em pausa registrada (${matrix ? "db_matrix_stops" : "evento “Pausa” em db_native_login"}: intervalo, toalete, lanche, pré-saída…) dentro do intervalo sai da conta. Pausa sem fim registrado vale até o próximo registro da pessoa (próxima pausa ou próximo atendimento).`),
+      li("Tempo deslogado é descontado.", `Do logoff até o próximo login (${matrix ? "db_matrix_login" : "evento “Sessão” em db_native_login"}) não é ociosidade. Quando o login seguinte não está registrado${matrix ? "" : " (a Native só grava a sessão depois do logoff)"}, o próximo atendimento marca a volta.`),
+      li("Intervalo em andamento (só hoje).", `O tempo desde o fim do último atendimento até agora também entra, enquanto a pessoa não deslogou — o TMEA “corre” enquanto ela espera o próximo. Limitado a ${andamento / 60} h: acima disso ela provavelmente encerrou o turno sem o logoff chegar ao banco.`),
+      li("TMEA = tempo ocioso ÷ número de intervalos.", "Ocioso = intervalo − pausas − tempo deslogado."),
+      li("Comparação com o setor.", `Média do TMEA (regra nova) dos outros atendentes do mesmo setor nos últimos 30 dias, cada um pesando igual, só quem tem ${resp?.minIntervalosReferencia ?? 10}+ intervalos. Âmbar = acima da média do setor.`)
+    ),
+    el("div", { class: "exemplo" },
+      el("b", { text: "Exemplo: " }),
+      "atendimento termina 10:00, próximo começa 11:30 (90 min). Houve pausa “Intervalo” das 10:20 às 10:50 (30 min) e logoff das 11:00 às 11:10 (10 min). ",
+      el("b", { text: "Ocioso = 90 − 30 − 10 = 50 min." }),
+      ` Na regra oficial esse intervalo seria descartado (acima de ${corte} min).`
+    ),
+    el("p", { class: "obs", text: "A regra oficial (widget, tabela de atendimentos e as outras abas) não mudou. Esta aba serve para comparar antes de adotar a regra nova. Os números de hoje são recalculados a cada minuto; os de 30 dias, a cada 10 minutos." })
+  );
+}
+
+function desenharNova() {
+  const alvo = $("rankings");
+  alvo.innerHTML = "";
+  const resp = dados[`${chavePeriodo()}:${prefs.sistema}`];
+  $("legenda").textContent = "Compare a coluna “TMEA atual” (regra oficial) com “TMEA regra nova”. Clique no nome para ver os atendimentos de hoje da pessoa.";
+  alvo.append(cardRegras(resp && !resp.erro ? resp : null));
+  if (!resp) {
+    $("sub").textContent = "Carregando…";
+    return;
+  }
+  if (resp.erro) {
+    alvo.append(el("div", { class: "card" }, el("div", { class: "error", text: resp.erro })));
+    $("sub").textContent = "";
+    return;
+  }
+  desenharSetores(resp);
+  const hoje = prefs.periodoNova === "hoje";
+  const linhas = resp.atendentes
+    .filter((a) => a.atendimentos >= minimo() && (!prefs.setor || a.setor === prefs.setor))
+    .map((a) => ({ a, valor: a.nova.segundosMedios, excesso: a.referencia ? a.nova.segundosMedios - a.referencia.segundosMedios : null }))
+    .sort((x, y) => {
+      if ((x.excesso === null) !== (y.excesso === null)) return x.excesso === null ? 1 : -1;
+      return (y.excesso ?? y.valor) - (x.excesso ?? x.valor);
+    });
+  const acima = linhas.filter((l) => l.excesso !== null && l.excesso > 0).length;
+  const card = el("div", { class: "card nova" });
+  card.append(el("div", { class: "rank-head" },
+    el("div", { class: "section-marker", text: `TMEA pela regra nova · ${hoje ? "hoje" : `últimos ${resp.dias} dias`}` }),
+    el("div", { class: "muted", text: "ordenado pela diferença para a média do setor (regra nova)" }),
+    el("div", { class: `resumo-n ${acima ? "warn" : "ok"}`, text: linhas.length ? `${acima} de ${linhas.length} acima do setor` : "" })));
+  if (!linhas.length) {
+    card.append(el("p", { class: "muted", text: `Ninguém com ${minimo()} ou mais atendimentos no período.` }));
+    alvo.append(card);
+    return;
+  }
+  const visiveis = prefs.todos ? linhas : linhas.slice(0, 20);
+  const horas = (s) => (s >= 3600 ? `${(s / 3600).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h` : fmt(s));
+  const tbody = el("tbody");
+  visiveis.forEach((l, i) => {
+    const n = l.a.nova;
+    const classe = l.excesso === null ? "" : l.excesso > 0 ? "warn" : "ok";
+    const [pessoa, setor] = separarSetor(l.a);
+    const nome = el("div", { class: "link", role: "link", tabindex: "0", title: `${l.a.nome}\nAbrir os atendimentos de hoje dessa pessoa` },
+      el("span", { class: "pessoa", text: pessoa }), setor ? el("span", { class: "setor", text: setor }) : null);
+    nome.addEventListener("click", () => abrirDetalhe(l.a.nome));
+    nome.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirDetalhe(l.a.nome); } });
+    const dif = l.excesso === null ? "—" : `${l.excesso > 0 ? "+" : "−"}${fmt(l.excesso)}`;
+    const refTitulo = l.a.referencia ? `Média de ${l.a.referencia.atendentes} colega(s) do setor ${l.a.referencia.setor}: ${fmt(l.a.referencia.segundosMedios)}` : "Sem colegas suficientes no setor";
+    const atual = l.a.atual;
+    tbody.append(el("tr", {},
+      el("td", { class: "pos", text: String(i + 1) }),
+      el("td", { class: "nome" }, nome),
+      el("td", { class: "metric n", text: String(l.a.atendimentos) }),
+      el("td", { class: "metric atual", title: atual ? `${atual.amostras} intervalo(s) · regra oficial (corta acima de ${resp.corteAtualMinutos} min)` : "Sem intervalos pela regra oficial", text: atual ? fmt(atual.segundosMedios) : "—" }),
+      el("td", { class: `metric ${classe}`, title: `${n.intervalos} intervalo(s)`, text: fmt(n.segundosMedios) }),
+      el("td", { class: `metric dif ${classe}`, title: refTitulo, text: dif }),
+      el("td", { class: "metric n", text: String(n.intervalos) }),
+      el("td", { class: "metric n", title: "Soma do tempo ocioso entre atendimentos", text: horas(n.ociosoSegundos) }),
+      el("td", { class: "metric n", title: "Tempo em pausa descontado dos intervalos", text: horas(n.pausaSegundos) }),
+      el("td", { class: "metric n", title: "Tempo deslogado descontado dos intervalos", text: horas(n.deslogadoSegundos) }),
+      hoje ? el("td", { class: "metric n", title: "Tempo ocioso desde o fim do último atendimento (já incluído no TMEA)", text: n.emAndamentoSegundos === null || n.emAndamentoSegundos === undefined ? "—" : fmt(n.emAndamentoSegundos) }) : null
+    ));
+  });
+  const cols = ["#", "Atendente", "Atend.", "TMEA atual", "TMEA regra nova", "vs. setor", "Intervalos", "Ocioso total", "Pausas desc.", "Deslogado desc."];
+  if (hoje) cols.push("Em andamento");
+  const head = el("tr", {}, ...cols.map((t, i) => el("th", { scope: "col", class: i >= 2 ? (t === "TMEA regra nova" ? "metric nova-col" : "metric") : "", text: t })));
+  const wrap = el("div", { class: "table-wrap" });
+  wrap.append(el("table", {}, el("thead", {}, head), tbody));
+  card.append(wrap);
+  if (!prefs.todos && linhas.length > 20) card.append(el("p", { class: "legend", text: `Mostrando os 20 primeiros de ${linhas.length}.` }));
+  alvo.append(card);
+  const calc = resp.calculadoEm ? resp.calculadoEm.slice(11, 16) : "—";
+  $("sub").textContent = `${resp.atendentes.length} atendente(s) · calculado às ${calc}`;
+}
+
+// ---------------- Aba "Pausas e comportamentos" ----------------
+
+/**
+ * Golpes/atalhos mais citados em call center (pesquisa: Call Centre Helper, Brightmetrics, GetVoIP,
+ * Avoxi) e como cada um aparece nos dados. `chave` = indicador da tabela; `porDia` = limite por dia
+ * trabalhado a partir do qual a célula fica em alerta.
+ */
+function golpes(resp) {
+  const L = resp.limites;
+  const sis = prefs.sistema === "matrix" ? "Matrix" : "Native";
+  const tma = resp.tmaLimite ? fmt(resp.tmaLimite * resp.longaFator) : "—";
+  return [
+    { chave: "excedidas", nome: "Estourar a pausa", o: "Sair para a pausa e voltar depois do tempo previsto (“arredondar” o intervalo, toalete que vira 15 min).",
+      como: "Pausas mais longas que o tempo previsto do tipo (Toalete 5 min, Lanche 5 min, Outras atividades 10 min…).", limite: `${L.excedidas}+ por dia`, sistemas: resp.indicadores.previsto },
+    { chave: "encadeadas", nome: "Renovar a pausa", o: "Encerrar a pausa perto do limite e abrir outra em seguida, para o sistema não marcar “tempo excedido”.",
+      como: `Nova pausa começando até ${resp.encadeadaSegundos} s depois do fim da anterior.`, limite: `${L.encadeadas}+ por dia`, sistemas: true },
+    { chave: "relampago", nome: "Pausa-relâmpago (furar a fila)", o: "Entrar e sair de pausa em segundos para escapar de uma ligação que está chegando ou mudar de posição na fila.",
+      como: `Pausas com menos de ${resp.relampagoSegundos} s.`, limite: `${L.relampago}+ por dia`, sistemas: true },
+    { chave: "ociosoLongo", nome: "Logado e parado", o: "Ficar disponível no sistema mas sem atender, sem abrir pausa (pós-atendimento esticado, “problema de TI”).",
+      como: `Intervalos entre atendimentos com ${resp.ociosoLongoMinutos}+ min ociosos depois de descontar pausas e tempo deslogado (regra nova do TMEA).`, limite: `${L.ociosoLongo}+ por dia`, sistemas: true },
+    { chave: "curtos", nome: "Derrubar a ligação", o: "Atender e desligar logo (“não estou ouvindo”, informação errada para encerrar), devolvendo o cliente para a fila.",
+      como: resp.curtosRotulo || "—", limite: `${L.curtos}+ por dia`, sistemas: resp.indicadores.curtos },
+    { chave: "longos", nome: "Segurar a linha", o: "Manter a ligação aberta depois que o cliente desligou, no mudo ou na pesquisa, para não receber a próxima.",
+      como: `Atendimentos acima de ${resp.longaFator}× o limite do TMA (mais de ${tma}).`, limite: `${L.longos}+ por dia`, sistemas: resp.indicadores.longos },
+    { chave: "transferidas", nome: "Transferir para se livrar", o: "Passar o cliente para outra fila/setor em vez de resolver, principalmente casos difíceis.",
+      como: "Parte dos atendimentos encerrada como “Transferida”.", limite: `${L.transferidasPct}%+ dos atendimentos`, sistemas: resp.indicadores.transferidas },
+    { chave: "internas", nome: "Ligar para ramal interno", o: "Ligar para um colega/ramal ou para o próprio celular para parecer ocupado e não receber ligações.",
+      como: "Ligações efetuadas para números de até 4 dígitos (ramais) e o tempo nelas.", limite: `${L.internasMin}+ min por dia`, sistemas: resp.indicadores.internas },
+    { chave: "sessoes", nome: "Deslogar e logar", o: "Sair do sistema várias vezes (“caiu”, “travou”) para ficar indisponível sem registrar pausa.",
+      como: "Número de sessões de login.", limite: `${L.sessoes}+ por dia`, sistemas: resp.indicadores.sessoes },
+    { chave: "semFim", nome: "Pausa sem fim registrado", o: "Pausa que fica aberta no sistema — o tempo real dela não aparece nos relatórios.",
+      como: "Pausas sem horário de fim.", limite: `${L.semFim}+ por dia`, sistemas: true },
+    { chave: "motivoGenerico", nome: "Motivo vazio na pausa", o: "Preencher a justificativa com “.”, “,” ou uma letra só nas pausas que pedem motivo.",
+      como: "Justificativa só com pontuação ou 1–2 letras (a Native grava o motivo digitado).", limite: `${L.motivoGenerico}+ por dia`, sistemas: resp.indicadores.motivo },
+  ].filter((g) => g.sistemas).map((g) => ({ ...g, sis }));
+}
+
+const NAO_DETECTAVEIS = [
+  ["Mute / “linha com problema”", "precisaria do áudio ou de speech analytics (silêncio na gravação)."],
+  ["Discar um dígito para bloquear a linha", "precisaria dos eventos do ramal (off-hook sem chamada)."],
+  ["Conversa longa com colega / supervisor na chamada", "precisaria dos eventos de conferência."],
+  ["Pós-atendimento (ACW) pessoal", "a Native/Matrix não registram o status de pós-atendimento separado — aparece como “logado e parado”."],
+  ["Fugir da última ligação do turno", "precisaria da escala de cada pessoa para saber o horário de saída."],
+];
+
+/** Taxa por dia trabalhado e se passa do limite (a comparação com a mediana vem depois, em marcarAlertas). */
+function taxa(resp, a, chave) {
+  const d = Math.max(1, a.dados.dias || 1);
+  const L = resp.limites;
+  const x = a.dados;
+  switch (chave) {
+    case "transferidas": {
+      const pct = x.atendimentos ? (100 * x.transferidas) / x.atendimentos : 0;
+      return { v: pct, alerta: pct >= L.transferidasPct && x.transferidas >= 3 };
+    }
+    case "internas": {
+      const min = x.internasSegundos / 60 / d;
+      return { v: min, alerta: min >= L.internasMin };
+    }
+    case "ociosoLongo":
+      return { v: a.ociosoLongo / d, alerta: a.ociosoLongo / d >= L.ociosoLongo };
+    default: {
+      const v = (x[chave] || 0) / d;
+      return { v, alerta: L[chave] !== undefined && v >= L[chave] };
+    }
+  }
+}
+
+function mediana(valores) {
+  const v = valores.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return 0;
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+/**
+ * Alerta = passou do limite E está em pelo menos 2× a mediana da operação E entre os 10% mais altos
+ * (no mesmo sistema e filtro).
+ * Assim o que é do sistema (ex.: logoff automático da Native, pausa sem fim na Matrix) não vira alerta
+ * para todo mundo — só para quem se destaca do grupo.
+ */
+function marcarAlertas(linhas, lista) {
+  const med = {};
+  const p90 = {};
+  for (const g of lista) {
+    const v = linhas.map((l) => l.t[g.chave].v).filter(Number.isFinite).sort((a, b) => a - b);
+    med[g.chave] = mediana(v);
+    p90[g.chave] = v.length ? v[Math.min(v.length - 1, Math.floor(v.length * 0.9))] : 0;
+  }
+  for (const l of linhas) {
+    for (const g of lista) {
+      const t = l.t[g.chave];
+      t.mediana = med[g.chave];
+      t.alerta = t.alerta && t.v > 0 && t.v >= 2 * med[g.chave] && t.v >= p90[g.chave];
+    }
+    l.alertas = lista.filter((g) => l.t[g.chave].alerta);
+  }
+  return med;
+}
+
+function cardGolpes(resp) {
+  const lista = golpes(resp);
+  const card = el("div", { class: "card regras" },
+    el("h2", { text: "Golpes mais comuns em call center e como aparecem nos dados" }),
+    el("p", { class: "muted", style: "margin:0 0 10px", text: `Cada item vira uma coluna da tabela abaixo, calculada por dia trabalhado (dias em que a pessoa atendeu) — em 30 dias, 60 pausas estouradas em 20 dias = 3 por dia. A célula fica vermelha quando a pessoa passa do limite E fica em pelo menos 2× a mediana da operação E entre os 10% mais altos (mesmo sistema e filtros): assim o que é comportamento do próprio sistema não acusa todo mundo. Indício não é prova: use para saber onde olhar (gravações, escala, conversa com a pessoa).` }));
+  const grid = el("div", { class: "golpes" });
+  for (const g of lista) {
+    grid.append(el("div", { class: "golpe" },
+      el("h3", { text: g.nome }),
+      el("p", { text: g.o }),
+      el("p", { class: "como" }, el("b", { text: "Como detectamos: " }), g.como),
+      el("p", {}, el("span", { class: "limite", text: `Alerta: ${g.limite}` }))));
+  }
+  for (const [nome, motivo] of NAO_DETECTAVEIS) {
+    grid.append(el("div", { class: "golpe fora" }, el("h3", { text: nome }), el("p", { class: "como", text: `Não detectável com os dados atuais: ${motivo}` })));
+  }
+  card.append(grid);
+  const fontes = el("div", { class: "fontes" }, "Fontes da pesquisa: ");
+  [["Call Centre Helper — 20 truques para evitar ligações", "https://www.callcentrehelper.com/7-tricks-that-call-centre-employees-play-67004.htm"],
+   ["Brightmetrics — workload hacks", "https://brightmetrics.com/blog/workload-hacks-call-center-agents-use/"],
+   ["GetVoIP — call avoidance", "https://getvoip.com/blog/call-avoidance/"],
+   ["Avoxi — tempo auxiliar (AUX)", "https://www.avoxi.com/blog/how-to-manage-call-center-agent-auxiliary-time/"]].forEach(([t, u], i) => {
+    if (i) fontes.append(" · ");
+    fontes.append(el("a", { href: u, target: "_blank", rel: "noopener", text: t }));
+  });
+  card.append(fontes);
+  return card;
+}
+
+function cardTipos(resp) {
+  const card = el("div", { class: "card pausas" },
+    el("div", { class: "rank-head" }, el("div", { class: "section-marker", text: "Pausas por tipo" }),
+      el("div", { class: "muted", text: "todos os atendentes do sistema no período" })));
+  const tipos = [...resp.tipos].sort((a, b) => b.dados.segundos - a.dados.segundos);
+  if (!tipos.length) {
+    card.append(el("p", { class: "muted", text: "Nenhuma pausa no período." }));
+    return card;
+  }
+  const prev = resp.indicadores.previsto;
+  const tbody = el("tbody");
+  for (const t of tipos) {
+    const x = t.dados;
+    const comFim = x.segundos && x.qtd ? x.segundos / x.qtd : null;
+    const pct = x.qtd ? Math.round((100 * x.excedidas) / x.qtd) : 0;
+    tbody.append(el("tr", {},
+      el("td", { text: t.tipo }),
+      el("td", { class: "metric", text: x.qtd.toLocaleString("pt-BR") }),
+      el("td", { class: "metric", text: horasFmt(x.segundos) }),
+      el("td", { class: "metric", text: comFim ? fmt(comFim) : "—" }),
+      prev ? el("td", { class: "metric", text: x.previsto ? fmt(x.previsto) : "—" }) : null,
+      prev ? el("td", { class: `metric ${pct >= 30 ? "bad" : ""}`, text: x.previsto ? `${pct}%` : "—" }) : null));
+  }
+  const cols = ["Tipo", "Pausas", "Tempo total", "Média"].concat(prev ? ["Previsto", "Acima do previsto"] : []);
+  const wrap = el("div", { class: "table-wrap" });
+  wrap.append(el("table", {}, el("thead", {}, el("tr", {}, ...cols.map((c, i) => el("th", { scope: "col", class: i ? "metric" : "", text: c })))), tbody));
+  card.append(wrap);
+  return card;
+}
+
+function horasFmt(s) {
+  if (!s) return "0:00";
+  return s >= 3600 ? `${(s / 3600).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h` : fmt(s);
+}
+
+/** Linha expandida: pausas por tipo e motivos digitados da pessoa. */
+function detalhePessoa(resp, a, ncols) {
+  const x = a.dados;
+  const tipos = Object.entries(x.porTipo).sort((p, q) => q[1].qtd - p[1].qtd);
+  const tTipos = el("table", { class: "mini" },
+    el("thead", {}, el("tr", {}, ...["Tipo", "Qtd", "Tempo", resp.indicadores.previsto ? "Acima do previsto" : null].filter(Boolean).map((c) => el("th", { text: c })))),
+    el("tbody", {}, ...tipos.map(([tipo, t]) => el("tr", {},
+      el("td", { text: tipo }), el("td", { text: String(t.qtd) }), el("td", { text: horasFmt(t.segundos) }),
+      resp.indicadores.previsto ? el("td", { text: t.previsto ? String(t.excedidas) : "—" }) : null))));
+  const blocos = [el("div", {}, el("h4", { text: `Pausas por tipo (${x.pausas})` }), tipos.length ? tTipos : el("p", { class: "muted", text: "Nenhuma pausa." }))];
+  if (resp.indicadores.motivo) {
+    const motivos = Object.entries(x.motivos).sort((p, q) => q[1] - p[1]).slice(0, 12);
+    blocos.push(el("div", {},
+      el("h4", { text: "Motivos digitados" }),
+      el("p", { class: "muted", style: "margin:0 0 6px", text: `${x.motivoGenerico} com motivo genérico (“.”, “,”, 1–2 letras) · ${x.semMotivo} sem motivo (tipo que não pede)` }),
+      motivos.length
+        ? el("table", { class: "mini" }, el("tbody", {}, ...motivos.map(([m, n]) => el("tr", {}, el("td", { text: m }), el("td", { text: String(n) })))))
+        : el("p", { class: "muted", text: "Nenhum motivo com texto." })));
+  }
+  blocos.push(el("div", {},
+    el("h4", { text: "Resumo" }),
+    el("table", { class: "mini" }, el("tbody", {},
+      ...[["Dias com atendimento", x.dias], ["Atendimentos", x.atendimentos], ["Tempo em pausa", horasFmt(x.pausaSegundos)],
+        ["Tempo acima do previsto", resp.indicadores.previsto ? horasFmt(x.excedidoSegundos) : "—"],
+        ["Maior ociosidade sem pausa", a.maiorOcioso ? fmt(a.maiorOcioso) : "—"],
+        ["Ligações p/ ramal interno", resp.indicadores.internas ? `${x.internas} (${horasFmt(x.internasSegundos)})` : "—"]]
+        .map(([k, v]) => el("tr", {}, el("td", { text: k }), el("td", { text: String(v) })))))));
+  return el("tr", { class: "detalhe" }, el("td", { colspan: String(ncols) }, el("div", { class: "detalhe-grid" }, ...blocos)));
+}
+
+function desenharPausas() {
+  const alvo = $("rankings");
+  alvo.innerHTML = "";
+  const resp = dados[`${chavePeriodo()}:${prefs.sistema}`];
+  $("legenda").textContent = "Ordenado por número de alertas. Clique em ▸ para ver as pausas por tipo e os motivos digitados; no nome, para abrir os atendimentos de hoje.";
+  if (!resp) {
+    $("sub").textContent = "Carregando…";
+    return;
+  }
+  if (resp.erro) {
+    alvo.append(el("div", { class: "card" }, el("div", { class: "error", text: resp.erro })));
+    $("sub").textContent = "";
+    return;
+  }
+  desenharSetores(resp);
+  const lista = golpes(resp);
+  alvo.append(cardGolpes(resp));
+
+  const linhas = resp.atendentes
+    .filter((a) => a.dados.atendimentos >= minimo() && (!prefs.setor || a.setor === prefs.setor))
+    .map((a) => {
+      const t = {};
+      for (const g of lista) t[g.chave] = taxa(resp, a, g.chave);
+      return { a, t, alertas: [] };
+    });
+  const med = marcarAlertas(linhas, lista);
+  linhas
+    .sort((x, y) => y.alertas.length - x.alertas.length || y.a.dados.pausaSegundos / Math.max(1, y.a.dados.dias) - x.a.dados.pausaSegundos / Math.max(1, x.a.dados.dias));
+
+  const card = el("div", { class: "card pausas" });
+  const comAlerta = linhas.filter((l) => l.alertas.length >= 2).length;
+  card.append(el("div", { class: "rank-head" },
+    el("div", { class: "section-marker", text: `Atendentes · ${prefs.periodoNova === "hoje" ? "hoje" : `últimos ${resp.dias} dias`}` }),
+    el("div", { class: "muted", text: "valores por dia trabalhado; passe o mouse para ver o total" }),
+    el("div", { class: `resumo-n ${comAlerta ? "bad" : "ok"}`, text: linhas.length ? `${comAlerta} de ${linhas.length} com 2 ou mais alertas` : "" })));
+  if (!linhas.length) {
+    card.append(el("p", { class: "muted", text: `Ninguém com ${minimo()} ou mais atendimentos no período.` }));
+    alvo.append(card, cardTipos(resp));
+    return;
+  }
+  const curtoNome = { excedidas: "Estourou", encadeadas: "Renovou", relampago: "Relâmpago", ociosoLongo: "Parado", curtos: "Derrubou",
+    longos: "Segurou", transferidas: "Transferiu", internas: "Ramal", sessoes: "Deslogou", semFim: "Sem fim", motivoGenerico: "Motivo vazio" };
+  const um = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const ncols = 6 + lista.length + 1;
+  const tbody = el("tbody");
+  const visiveis = prefs.todos ? linhas : linhas.slice(0, 30);
+  visiveis.forEach((l, i) => {
+    const x = l.a.dados;
+    const d = Math.max(1, x.dias);
+    const [pessoa, setor] = separarSetor(l.a);
+    const nome = el("div", { class: "link", role: "link", tabindex: "0", title: `${l.a.nome}\nAbrir os atendimentos de hoje dessa pessoa` },
+      el("span", { class: "pessoa", text: pessoa }), setor ? el("span", { class: "setor", text: setor }) : null);
+    nome.addEventListener("click", () => abrirDetalhe(l.a.nome));
+    const btn = el("button", { type: "button", class: "expandir", "aria-expanded": "false", title: "Pausas por tipo e motivos", text: "▸" });
+    const tr = el("tr", {},
+      el("td", {}, btn),
+      el("td", { class: "pos", text: String(i + 1) }),
+      el("td", { class: "nome" }, nome),
+      el("td", { class: "metric n", text: String(x.atendimentos) }),
+      el("td", { class: "metric", title: `${x.pausas} pausas em ${x.dias} dia(s)`, text: um(x.pausas / d) }),
+      el("td", { class: "metric", title: `${horasFmt(x.pausaSegundos)} no período`, text: fmt(x.pausaSegundos / d) }),
+      ...lista.map((g) => {
+        const t = l.t[g.chave];
+        const total = g.chave === "transferidas" ? `${x.transferidas} de ${x.atendimentos}` : g.chave === "internas" ? `${x.internas} ligações · ${horasFmt(x.internasSegundos)}`
+          : g.chave === "ociosoLongo" ? `${l.a.ociosoLongo} no período` : `${x[g.chave]} no período`;
+        const texto = g.chave === "transferidas" ? `${Math.round(t.v)}%` : g.chave === "internas" ? `${Math.round(t.v)} min` : um(t.v);
+        const medTxt = g.chave === "transferidas" ? `${Math.round(med[g.chave])}%` : g.chave === "internas" ? `${Math.round(med[g.chave])} min` : um(med[g.chave]);
+        return el("td", { class: `metric${t.alerta ? " alerta" : ""}`, title: `${g.nome}: ${total}
+Limite ${g.limite} · mediana da operação ${medTxt}/dia`, text: texto });
+      }),
+      el("td", {}, el("div", { class: "alertas" }, ...l.alertas.map((g) => el("span", { class: "alerta-tag", title: g.nome, text: curtoNome[g.chave] || g.nome })))));
+    let aberto = null;
+    btn.addEventListener("click", () => {
+      if (aberto) {
+        aberto.remove();
+        aberto = null;
+      } else {
+        aberto = detalhePessoa(resp, l.a, ncols);
+        tr.after(aberto);
+      }
+      btn.textContent = aberto ? "▾" : "▸";
+      btn.setAttribute("aria-expanded", String(Boolean(aberto)));
+    });
+    tbody.append(tr);
+  });
+  const cols = ["", "#", "Atendente", "Atend.", "Pausas/dia", "Pausa/dia"].concat(lista.map((g) => g.nome), ["Alertas"]);
+  const wrap = el("div", { class: "table-wrap" });
+  wrap.append(el("table", {}, el("thead", {}, el("tr", {}, ...cols.map((c, i) => el("th", { scope: "col", class: i >= 3 && i < cols.length - 1 ? "metric" : "", text: c })))), tbody));
+  card.append(wrap);
+  if (!prefs.todos && linhas.length > 30) card.append(el("p", { class: "legend", text: `Mostrando os 30 primeiros de ${linhas.length}.` }));
+  alvo.append(card, cardTipos(resp));
+  const calc = resp.calculadoEm ? resp.calculadoEm.slice(11, 16) : "—";
+  $("sub").textContent = `${linhas.length} atendente(s) · calculado às ${calc}`;
+}
+
 async function carregar() {
   const btn = $("atualizar-btn");
   btn.disabled = true;
   btn.textContent = "Atualizando…";
-  const periodo = prefs.periodo;
-  const res = await Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), `/ext/ofensores?periodo=${periodo}`)));
+  const chave = chavePeriodo();
+  const rota = prefs.periodo === "nova" ? `/ext/ofensores/tmea-nova?periodo=${prefs.periodoNova}`
+    : prefs.periodo === "pausas" ? `/ext/ofensores/pausas?periodo=${prefs.periodoNova}`
+    : `/ext/ofensores?periodo=${prefs.periodo}`;
+  const res = await Promise.allSettled(SISTEMAS.map((s) => SebratelApi.request(s.base(), rota)));
   res.forEach((r, i) => {
-    dados[`${periodo}:${SISTEMAS[i].chave}`] = r.status === "fulfilled"
+    dados[`${chave}:${SISTEMAS[i].chave}`] = r.status === "fulfilled"
       ? r.value
       : { erro: r.reason?.status === 403 ? "Somente administradores." : r.reason?.message || "Dados indisponíveis" };
   });
@@ -253,8 +672,17 @@ for (const b of document.querySelectorAll(".periodo")) {
     carregar().catch(() => {});
   });
 }
+for (const b of document.querySelectorAll(".chip[data-nova]")) {
+  b.addEventListener("click", () => {
+    if (prefs.periodoNova === b.dataset.nova) return;
+    prefs.periodoNova = b.dataset.nova;
+    salvarPrefs();
+    desenhar();
+    carregar().catch(() => {});
+  });
+}
 $("minimo").addEventListener("change", (e) => {
-  prefs.minimos = { ...prefs.minimos, [prefs.periodo]: Math.max(1, Number(e.target.value) || 1) };
+  prefs.minimos = { ...prefs.minimos, [chavePeriodo()]: Math.max(1, Number(e.target.value) || 1) };
   e.target.value = minimo();
   salvarPrefs();
   desenhar();
@@ -271,6 +699,7 @@ chrome.storage.local.get([PREFS_KEY], (r) => {
   delete salvo.minimo; // formato antigo (um mínimo só)
   prefs = { ...prefs, ...salvo, minimos: { ...prefs.minimos, ...(salvo.minimos || {}) } };
   if (!PERIODOS[prefs.periodo]) prefs.periodo = "hoje";
+  if (!["hoje", "30d"].includes(prefs.periodoNova)) prefs.periodoNova = "hoje";
   $("todos").checked = prefs.todos;
   carregar().catch((err) => {
     $("sub").textContent = err.message;

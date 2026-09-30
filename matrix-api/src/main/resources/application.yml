@@ -73,6 +73,28 @@ app:
       formula: Início do atendimento − início do atendimento anterior (no chat os atendimentos correm em paralelo)
       max-intervalo-minutos: 60
       dias-referencia: 30
+      # Regra nova do TMEA (aba "TMEA · regra nova"): desconta pausas e tempo deslogado.
+      pausas:
+        tabela: db_matrix_stops
+        agente: agente
+        inicio: data_pausa
+        fim: data_despausa
+      sessoes:
+        tabela: db_matrix_login
+        agente: agente
+        inicio: data_login
+        fim: data_logout
+    # Aba "Pausas e comportamentos". A Matrix não tem tempo previsto por pausa e grava
+    # "0000-00-00 00:00:00" quando o fim da pausa não foi registrado.
+    comportamento:
+      pausas-sql: >-
+        SELECT agente, UNIX_TIMESTAMP(data_pausa) AS ini, NULLIF(UNIX_TIMESTAMP(data_despausa), 0) AS fim,
+        pausa AS tipo, NULL AS previsto, NULL AS motivo FROM db_matrix_stops WHERE data_pausa >= {desde}
+      curtos-condicao: "TIMESTAMPDIFF(SECOND, NULLIF(`data_atendimento`, ''), NULLIF(`data_finalizacao`, '')) BETWEEN 0 AND 59"
+      curtos-rotulo: Atendimentos finalizados em menos de 1 min depois de assumidos
+      tipo-prefixo: '^[0-9]+-SEBRATEL-'
+      # Chats ficam abertos por horas em paralelo: atendimento longo não indica linha presa.
+      longas-ativo: false
     # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem CPF/telefone de propósito; o cliente
     # sai só como alias (ClienteAlias — a relação alias -> nome fica na tabela cliente_alias do app-db).
     detalhe:
