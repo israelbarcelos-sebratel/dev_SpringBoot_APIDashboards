@@ -3,6 +3,7 @@ package com.sebratel.dashboards.common.auth;
 import com.sebratel.dashboards.common.cache.PausasComportamento;
 import com.sebratel.dashboards.common.cache.ReferenciaMensalJob;
 import com.sebratel.dashboards.common.cache.TemposHojeJob;
+import com.sebratel.dashboards.common.cache.TempoLogado;
 import com.sebratel.dashboards.common.cache.TmeaNovaRegra;
 import com.sebratel.dashboards.common.config.TableGroupProperties;
 import com.sebratel.dashboards.common.config.WidgetProperties;
@@ -243,6 +244,11 @@ public class OfensoresController {
         resp.put("limites", limites);
         resp.put("atendentes", atendentes);
         resp.put("tipos", tipos);
+        // Tempo logado de todos com sessão no período (inclusive quem não atendeu): a tela junta com o
+        // do outro sistema pela correspondência de nomes.
+        resp.put("logados", calc.logados());
+        resp.put("logadoEstimado", calc.logadoEstimado());
+        resp.put("maxSessaoAbertaHoras", TempoLogado.MAX_ABERTA_SEGUNDOS / 3600);
         resp.put("calculadoEm", calc.calculadoEm());
         return resp;
     }

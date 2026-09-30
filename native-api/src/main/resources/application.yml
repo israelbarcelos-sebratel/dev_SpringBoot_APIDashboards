@@ -91,6 +91,9 @@ app:
       # Ramal interno: número com até 4 dígitos (ex.: 1021).
       internas-condicao: "`sentido` = 'Efetuada' AND CHAR_LENGTH(`numero`) <= 4 AND `atendimento` IS NOT NULL"
       internas-segundos: "TIME_TO_SEC(`atendimento`)"
+      # Tempo logado: a Native só grava a sessão no logoff; a sessão atual é estimada pela atividade
+      # (ligações e pausas) desde o último logoff.
+      estimar-sessao-aberta: true
     # Tabela "atendimentos de hoje" (/ext/widget/detalhe). Sem telefone/gravação de propósito; o
     # cliente sai só como alias (ClienteAlias — a relação alias -> nome fica em cliente_alias no app-db).
     detalhe:

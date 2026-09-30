@@ -355,6 +355,19 @@ public class WidgetProperties {
         private String internasSegundos;
         /** "Segurar a linha" (calls far above the TMA limit): off where conversations run in parallel (chat). */
         private boolean longasAtivo = true;
+        /**
+         * The sessions table only gets the row at logoff (Native): the session in progress is estimated
+         * from the activity after the last logoff (see {@code TempoLogado}).
+         */
+        private boolean estimarSessaoAberta;
+
+        public boolean isEstimarSessaoAberta() {
+            return estimarSessaoAberta;
+        }
+
+        public void setEstimarSessaoAberta(boolean estimarSessaoAberta) {
+            this.estimarSessaoAberta = estimarSessaoAberta;
+        }
 
         public boolean isLongasAtivo() {
             return longasAtivo;

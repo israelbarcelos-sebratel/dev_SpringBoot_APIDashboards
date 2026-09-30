@@ -10,13 +10,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -26,6 +29,8 @@ import java.util.regex.Pattern;
  * calls ended by the atendente, calls far above the TMA limit, transfers, calls to internal
  * extensions) — see {@code app.widget.comportamento}. Today every minute and the last
  * {@code dias-referencia} days every 10 minutes; long idle stretches come from {@link TmeaNovaRegra}.
+ * Also the time logged into the platform ({@link TempoLogado}) of everyone with a session in the period,
+ * not only those who attended — the screen pairs it with the other system's by name.
  */
 @Component
 public class PausasComportamento {
@@ -77,7 +82,7 @@ public class PausasComportamento {
 
     public record Calculo(Map<String, Atendente> porAtendente, Map<String, PorTipo> porTipo, boolean temPrevisto,
                           boolean temMotivo, Map<String, Boolean> indicadores, String curtosRotulo, Integer tmaLimite,
-                          String calculadoEm) {}
+                          String calculadoEm, Map<String, TempoLogado.Logado> logados, boolean logadoEstimado) {}
 
     private record Pausa(long ini, Long fim, String tipo, Long previsto, String motivo) {}
 
@@ -280,14 +285,88 @@ public class PausasComportamento {
             indicadores.put("transferidas", tem(cfg.getTransferidasCondicao()));
             indicadores.put("internas", tem(cfg.getInternasCondicao()));
             indicadores.put("sessoes", sess != null && sess.configurado());
+            Map<String, TempoLogado.Logado> logados = tempoLogado(sess, desde, cfg.isEstimarSessaoAberta(), pausas, d,
+                    atendenteCol, dataCol, valido);
             String agora = jdbcTemplate.queryForObject("SELECT CAST(NOW() AS CHAR)", String.class);
             log.debug("Pausas e comportamentos ({}, desde {}): {} atendentes, {} tipos de pausa em {} ms.", d.getTabela(),
                     desde, out.size(), geral.size(), System.currentTimeMillis() - t0);
             return new Calculo(Map.copyOf(out), geral, temPrevisto[0], temMotivo[0], indicadores, cfg.getCurtosRotulo(),
-                    tmaLimite, agora);
+                    tmaLimite, agora, logados, cfg.isEstimarSessaoAberta());
         } catch (DataAccessException e) {
             log.warn("Não foi possível calcular pausas e comportamentos ({}): {}", d.getTabela(), e.getMessage());
             return null;
         }
+    }
+
+    /** atendente -> time logged in the window; empty when the sessions table isn't configured. */
+    private Map<String, TempoLogado.Logado> tempoLogado(WidgetProperties.Registros sess, String desde, boolean estimar,
+                                                        Map<String, List<Pausa>> pausas, Domain d, String atendenteCol,
+                                                        String dataCol, String valido) {
+        if (sess == null || !sess.configurado()) {
+            return Map.of();
+        }
+        Map<String, Object> relogio = jdbcTemplate.queryForMap("SELECT UNIX_TIMESTAMP(" + desde + ") AS inicio,"
+                + " UNIX_TIMESTAMP(CURDATE()) AS hoje, UNIX_TIMESTAMP(NOW()) AS agora");
+        long inicio = ((Number) relogio.get("inicio")).longValue();
+        long hojeInicio = ((Number) relogio.get("hoje")).longValue();
+        long agora = ((Number) relogio.get("agora")).longValue();
+
+        String filtro = tem(sess.getFiltro()) ? " AND (" + sess.getFiltro() + ")" : "";
+        Map<String, List<long[]>> sessoes = new HashMap<>();
+        // Um dia antes: sessão que começou antes da janela e ainda estava aberta nela.
+        // NULLIF(..., 0): "0000-00-00 00:00:00" quando o logout não foi registrado.
+        jdbcTemplate.query("SELECT `" + sess.getAgente() + "` AS a, NULLIF(UNIX_TIMESTAMP(`" + sess.getInicio() + "`), 0) AS i,"
+                        + " NULLIF(UNIX_TIMESTAMP(`" + sess.getFim() + "`), 0) AS f FROM `" + sess.getTabela() + "`"
+                        + " WHERE `" + sess.getInicio() + "` >= " + desde + " - INTERVAL 1 DAY AND `" + sess.getInicio()
+                        + "` <= NOW()" + filtro,
+                rs -> {
+                    long i = rs.getLong("i");
+                    if (rs.wasNull()) {
+                        return;
+                    }
+                    long f = rs.getLong("f");
+                    long fim = rs.wasNull() ? TempoLogado.SEM_FIM : f;
+                    sessoes.computeIfAbsent(rs.getString("a"), k -> new ArrayList<>()).add(new long[] {i, fim});
+                });
+
+        // Native: a sessão só é gravada no logoff — a de agora sai da atividade de hoje (ligações e pausas).
+        Map<String, List<long[]>> atividades = new HashMap<>();
+        WidgetProperties.Tmea t = widget.getTmea();
+        if (estimar && tem(t.getInicio()) && tem(t.getFim())) {
+            String ini = "(" + t.getInicio() + ")";
+            jdbcTemplate.query("SELECT `" + atendenteCol + "` AS a, " + ini + " AS ini, (" + t.getFim() + ") AS fim FROM `"
+                            + d.getTabela() + "` WHERE `" + dataCol + "` >= DATE_FORMAT(CURDATE(), '%Y-%m-%d') AND " + valido
+                            + " AND " + ini + " IS NOT NULL",
+                    rs -> {
+                        long i = rs.getLong("ini");
+                        long f = rs.getLong("fim");
+                        long fim = rs.wasNull() ? i : f;
+                        atividades.computeIfAbsent(rs.getString("a"), k -> new ArrayList<>()).add(new long[] {i, fim});
+                    });
+            pausas.forEach((agente, lista) -> {
+                for (Pausa p : lista) {
+                    if (p.ini() >= hojeInicio) {
+                        atividades.computeIfAbsent(agente, k -> new ArrayList<>())
+                                .add(new long[] {p.ini(), p.fim() == null ? p.ini() : p.fim()});
+                    }
+                }
+            });
+        }
+
+        ZoneId zona = ZoneId.systemDefault();
+        Map<String, TempoLogado.Logado> out = new HashMap<>();
+        Set<String> nomes = new HashSet<>(sessoes.keySet());
+        nomes.addAll(atividades.keySet());
+        for (String nome : nomes) {
+            if (nome == null || nome.isBlank() || "null".equalsIgnoreCase(nome.trim())) {
+                continue;
+            }
+            TempoLogado.Logado l = TempoLogado.calcular(sessoes.getOrDefault(nome, List.of()), atividades.get(nome),
+                    inicio, hojeInicio, agora, estimar, zona);
+            if (l != null) {
+                out.put(nome, l);
+            }
+        }
+        return Map.copyOf(out);
     }
 }
