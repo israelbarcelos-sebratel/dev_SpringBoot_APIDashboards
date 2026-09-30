@@ -1,17 +1,21 @@
 package com.sebratel.dashboards.common.cache;
 
+import com.sebratel.dashboards.common.config.WidgetProperties;
+import org.springframework.jdbc.core.JdbcTemplate;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Time logged into the platform per atendente, from the login sessions ({@code app.widget.tmea.sessoes}).
- * Overlapping sessions count once and everything is clipped to the window [inicio, agora].
+ * Overlapping sessions count once and everything is clipped to the window.
  *
  * <ul>
  *   <li>A session without logout (the Matrix writes the row at login) lasts until the same person's
@@ -37,17 +41,106 @@ public final class TempoLogado {
         public long estimadoSegundos;
     }
 
+    /** DB clock for a window: its start, today's midnight and now (epoch seconds). */
+    public record Relogio(long inicio, long hojeInicio, long agora) {}
+
+    /** Merged logged-in stretches, how many sessions started at/after {@code inicio}, the estimated part. */
+    private record Trechos(List<long[]> unidas, long sessoes, long estimado) {}
+
     private TempoLogado() {}
+
+    /** @param desde DATE expression of the window's start */
+    static Relogio relogio(JdbcTemplate jdbc, String desde) {
+        Map<String, Object> r = jdbc.queryForMap("SELECT UNIX_TIMESTAMP(" + desde + ") AS inicio,"
+                + " UNIX_TIMESTAMP(CURDATE()) AS hoje, UNIX_TIMESTAMP(NOW()) AS agora");
+        return new Relogio(((Number) r.get("inicio")).longValue(), ((Number) r.get("hoje")).longValue(),
+                ((Number) r.get("agora")).longValue());
+    }
+
+    /**
+     * atendente -> {ini, fim} of the sessions that started from one day before {@code desde} (a session
+     * begun before the window may still be open in it); {@link #SEM_FIM} when there's no logout.
+     */
+    static Map<String, List<long[]>> sessoes(JdbcTemplate jdbc, WidgetProperties.Registros sess, String desde) {
+        Map<String, List<long[]>> out = new HashMap<>();
+        if (sess == null || !sess.configurado()) {
+            return out;
+        }
+        String filtro = sess.getFiltro() == null || sess.getFiltro().isBlank() ? "" : " AND (" + sess.getFiltro() + ")";
+        // NULLIF(..., 0): "0000-00-00 00:00:00" quando o logout não foi registrado.
+        jdbc.query("SELECT `" + sess.getAgente() + "` AS a, NULLIF(UNIX_TIMESTAMP(`" + sess.getInicio() + "`), 0) AS i,"
+                        + " NULLIF(UNIX_TIMESTAMP(`" + sess.getFim() + "`), 0) AS f FROM `" + sess.getTabela() + "`"
+                        + " WHERE `" + sess.getInicio() + "` >= " + desde + " - INTERVAL 1 DAY AND `" + sess.getInicio()
+                        + "` <= NOW()" + filtro,
+                rs -> {
+                    long i = rs.getLong("i");
+                    if (rs.wasNull()) {
+                        return;
+                    }
+                    long f = rs.getLong("f");
+                    long fim = rs.wasNull() ? SEM_FIM : f;
+                    out.computeIfAbsent(rs.getString("a"), k -> new ArrayList<>()).add(new long[] {i, fim});
+                });
+        return out;
+    }
+
+    /** atendente -> {ini, fim} of today's calls (the activity that estimates the Native's open session). */
+    static Map<String, List<long[]>> chamadasHoje(JdbcTemplate jdbc, WidgetProperties.Tmea t, String tabela,
+                                                  String atendenteCol, String dataCol) {
+        Map<String, List<long[]>> out = new HashMap<>();
+        if (t.getInicio() == null || t.getInicio().isBlank() || t.getFim() == null || t.getFim().isBlank()) {
+            return out;
+        }
+        String ini = "(" + t.getInicio() + ")";
+        jdbc.query("SELECT `" + atendenteCol + "` AS a, " + ini + " AS ini, (" + t.getFim() + ") AS fim FROM `" + tabela
+                        + "` WHERE `" + dataCol + "` >= DATE_FORMAT(CURDATE(), '%Y-%m-%d') AND `" + atendenteCol
+                        + "` IS NOT NULL AND `" + atendenteCol + "` <> '' AND " + ini + " IS NOT NULL",
+                rs -> {
+                    long i = rs.getLong("ini");
+                    long f = rs.getLong("fim");
+                    long fim = rs.wasNull() ? i : f;
+                    out.computeIfAbsent(rs.getString("a"), k -> new ArrayList<>()).add(new long[] {i, fim});
+                });
+        return out;
+    }
 
     /**
      * @param sessoes     {ini, fim} epoch seconds, {@link #SEM_FIM} when there's no logout
      * @param atividades  {ini, fim} of today's calls and pauses (only used with {@code estimarAberta})
-     * @param inicio      window start (epoch)
-     * @param hojeInicio  today's midnight (epoch)
-     * @return null when there's no logged time in the window
+     * @return null when there's no logged time in [inicio, agora]
      */
     static Logado calcular(List<long[]> sessoes, List<long[]> atividades, long inicio, long hojeInicio, long agora,
                            boolean estimarAberta, ZoneId zona) {
+        Trechos t = montar(sessoes, atividades, inicio, hojeInicio, agora, estimarAberta);
+        Map<LocalDate, Long> dias = porDia(t.unidas(), inicio, agora, zona);
+        long total = dias.values().stream().mapToLong(Long::longValue).sum();
+        if (total == 0) {
+            return null;
+        }
+        Logado l = new Logado();
+        l.segundos = total;
+        l.dias = dias.size();
+        l.sessoes = t.sessoes();
+        l.estimadoSegundos = Math.min(t.estimado(), total);
+        return l;
+    }
+
+    /**
+     * Seconds logged per day in [inicio, fim) (a night shift counts in both days); with
+     * {@code estimarAberta}, today's estimated part goes to {@code estimadoHoje[0]}.
+     */
+    static Map<LocalDate, Long> porDia(List<long[]> sessoes, List<long[]> atividades, long inicio, long fim,
+                                       long hojeInicio, long agora, boolean estimarAberta, ZoneId zona,
+                                       long[] estimadoHoje) {
+        Trechos t = montar(sessoes, atividades, inicio, hojeInicio, agora, estimarAberta);
+        if (estimadoHoje != null) {
+            estimadoHoje[0] = t.estimado();
+        }
+        return porDia(t.unidas(), inicio, Math.min(fim, agora), zona);
+    }
+
+    private static Trechos montar(List<long[]> sessoes, List<long[]> atividades, long inicio, long hojeInicio,
+                                  long agora, boolean estimarAberta) {
         List<long[]> ord = new ArrayList<>(sessoes);
         ord.sort(Comparator.comparingLong(s -> s[0]));
         List<long[]> trechos = new ArrayList<>();
@@ -89,32 +182,24 @@ public final class TempoLogado {
                 }
             }
         }
+        return new Trechos(unidas, sessoesNaJanela, estimado);
+    }
 
-        long total = 0;
-        Set<LocalDate> dias = new HashSet<>();
+    /** Merged stretches clipped to [inicio, fim), split at midnight: day -> seconds (only days with time). */
+    private static Map<LocalDate, Long> porDia(List<long[]> unidas, long inicio, long fim, ZoneId zona) {
+        Map<LocalDate, Long> out = new TreeMap<>();
         for (long[] t : unidas) {
             long a = Math.max(t[0], inicio);
-            long b = Math.min(t[1], agora);
-            if (b <= a) {
-                continue;
-            }
-            total += b - a;
-            // Dias com login: cada dia que o trecho toca (turno da noite conta nos dois).
-            LocalDate d = Instant.ofEpochSecond(a).atZone(zona).toLocalDate();
-            LocalDate ultimo = Instant.ofEpochSecond(b - 1).atZone(zona).toLocalDate();
-            for (; !d.isAfter(ultimo); d = d.plusDays(1)) {
-                dias.add(d);
+            long b = Math.min(t[1], fim);
+            while (b > a) {
+                LocalDate dia = Instant.ofEpochSecond(a).atZone(zona).toLocalDate();
+                long meiaNoite = dia.plusDays(1).atStartOfDay(zona).toEpochSecond();
+                long ate = Math.min(b, meiaNoite);
+                out.merge(dia, ate - a, Long::sum);
+                a = ate;
             }
         }
-        if (total == 0) {
-            return null;
-        }
-        Logado l = new Logado();
-        l.segundos = total;
-        l.dias = dias.size();
-        l.sessoes = sessoesNaJanela;
-        l.estimadoSegundos = Math.min(estimado, total);
-        return l;
+        return out;
     }
 
     private static List<long[]> unir(List<long[]> trechos) {

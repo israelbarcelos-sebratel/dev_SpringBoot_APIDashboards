@@ -84,7 +84,7 @@ public class PausasComportamento {
                           boolean temMotivo, Map<String, Boolean> indicadores, String curtosRotulo, Integer tmaLimite,
                           String calculadoEm, Map<String, TempoLogado.Logado> logados, boolean logadoEstimado) {}
 
-    private record Pausa(long ini, Long fim, String tipo, Long previsto, String motivo) {}
+    record Pausa(long ini, Long fim, String tipo, Long previsto, String motivo) {}
 
     private final JdbcTemplate jdbcTemplate;
     private final SemanticDomainProperties props;
@@ -286,7 +286,7 @@ public class PausasComportamento {
             indicadores.put("internas", tem(cfg.getInternasCondicao()));
             indicadores.put("sessoes", sess != null && sess.configurado());
             Map<String, TempoLogado.Logado> logados = tempoLogado(sess, desde, cfg.isEstimarSessaoAberta(), pausas, d,
-                    atendenteCol, dataCol, valido);
+                    atendenteCol, dataCol);
             String agora = jdbcTemplate.queryForObject("SELECT CAST(NOW() AS CHAR)", String.class);
             log.debug("Pausas e comportamentos ({}, desde {}): {} atendentes, {} tipos de pausa em {} ms.", d.getTabela(),
                     desde, out.size(), geral.size(), System.currentTimeMillis() - t0);
@@ -301,56 +301,17 @@ public class PausasComportamento {
     /** atendente -> time logged in the window; empty when the sessions table isn't configured. */
     private Map<String, TempoLogado.Logado> tempoLogado(WidgetProperties.Registros sess, String desde, boolean estimar,
                                                         Map<String, List<Pausa>> pausas, Domain d, String atendenteCol,
-                                                        String dataCol, String valido) {
+                                                        String dataCol) {
         if (sess == null || !sess.configurado()) {
             return Map.of();
         }
-        Map<String, Object> relogio = jdbcTemplate.queryForMap("SELECT UNIX_TIMESTAMP(" + desde + ") AS inicio,"
-                + " UNIX_TIMESTAMP(CURDATE()) AS hoje, UNIX_TIMESTAMP(NOW()) AS agora");
-        long inicio = ((Number) relogio.get("inicio")).longValue();
-        long hojeInicio = ((Number) relogio.get("hoje")).longValue();
-        long agora = ((Number) relogio.get("agora")).longValue();
-
-        String filtro = tem(sess.getFiltro()) ? " AND (" + sess.getFiltro() + ")" : "";
-        Map<String, List<long[]>> sessoes = new HashMap<>();
-        // Um dia antes: sessão que começou antes da janela e ainda estava aberta nela.
-        // NULLIF(..., 0): "0000-00-00 00:00:00" quando o logout não foi registrado.
-        jdbcTemplate.query("SELECT `" + sess.getAgente() + "` AS a, NULLIF(UNIX_TIMESTAMP(`" + sess.getInicio() + "`), 0) AS i,"
-                        + " NULLIF(UNIX_TIMESTAMP(`" + sess.getFim() + "`), 0) AS f FROM `" + sess.getTabela() + "`"
-                        + " WHERE `" + sess.getInicio() + "` >= " + desde + " - INTERVAL 1 DAY AND `" + sess.getInicio()
-                        + "` <= NOW()" + filtro,
-                rs -> {
-                    long i = rs.getLong("i");
-                    if (rs.wasNull()) {
-                        return;
-                    }
-                    long f = rs.getLong("f");
-                    long fim = rs.wasNull() ? TempoLogado.SEM_FIM : f;
-                    sessoes.computeIfAbsent(rs.getString("a"), k -> new ArrayList<>()).add(new long[] {i, fim});
-                });
-
+        TempoLogado.Relogio relogio = TempoLogado.relogio(jdbcTemplate, desde);
+        Map<String, List<long[]>> sessoes = TempoLogado.sessoes(jdbcTemplate, sess, desde);
         // Native: a sessão só é gravada no logoff — a de agora sai da atividade de hoje (ligações e pausas).
         Map<String, List<long[]>> atividades = new HashMap<>();
-        WidgetProperties.Tmea t = widget.getTmea();
-        if (estimar && tem(t.getInicio()) && tem(t.getFim())) {
-            String ini = "(" + t.getInicio() + ")";
-            jdbcTemplate.query("SELECT `" + atendenteCol + "` AS a, " + ini + " AS ini, (" + t.getFim() + ") AS fim FROM `"
-                            + d.getTabela() + "` WHERE `" + dataCol + "` >= DATE_FORMAT(CURDATE(), '%Y-%m-%d') AND " + valido
-                            + " AND " + ini + " IS NOT NULL",
-                    rs -> {
-                        long i = rs.getLong("ini");
-                        long f = rs.getLong("fim");
-                        long fim = rs.wasNull() ? i : f;
-                        atividades.computeIfAbsent(rs.getString("a"), k -> new ArrayList<>()).add(new long[] {i, fim});
-                    });
-            pausas.forEach((agente, lista) -> {
-                for (Pausa p : lista) {
-                    if (p.ini() >= hojeInicio) {
-                        atividades.computeIfAbsent(agente, k -> new ArrayList<>())
-                                .add(new long[] {p.ini(), p.fim() == null ? p.ini() : p.fim()});
-                    }
-                }
-            });
+        if (estimar) {
+            atividades.putAll(TempoLogado.chamadasHoje(jdbcTemplate, widget.getTmea(), d.getTabela(), atendenteCol, dataCol));
+            atividadesDePausa(pausas, relogio.hojeInicio(), atividades);
         }
 
         ZoneId zona = ZoneId.systemDefault();
@@ -362,11 +323,42 @@ public class PausasComportamento {
                 continue;
             }
             TempoLogado.Logado l = TempoLogado.calcular(sessoes.getOrDefault(nome, List.of()), atividades.get(nome),
-                    inicio, hojeInicio, agora, estimar, zona);
+                    relogio.inicio(), relogio.hojeInicio(), relogio.agora(), estimar, zona);
             if (l != null) {
                 out.put(nome, l);
             }
         }
         return Map.copyOf(out);
+    }
+
+    /** Today's pauses as {ini, fim} activity (a pause without end counts as its start). */
+    static void atividadesDePausa(Map<String, List<Pausa>> pausas, long hojeInicio, Map<String, List<long[]>> atividades) {
+        pausas.forEach((agente, lista) -> {
+            for (Pausa p : lista) {
+                if (p.ini() >= hojeInicio) {
+                    atividades.computeIfAbsent(agente, k -> new ArrayList<>())
+                            .add(new long[] {p.ini(), p.fim() == null ? p.ini() : p.fim()});
+                }
+            }
+        });
+    }
+
+    /**
+     * atendente -> pauses from {@code app.widget.comportamento.pausas-sql} (type not resolved), in start
+     * order; pauses without end have {@code fim} null.
+     */
+    static Map<String, List<Pausa>> lerPausas(JdbcTemplate jdbc, String pausasSql, String desde) {
+        Map<String, List<Pausa>> pausas = new HashMap<>();
+        jdbc.query(pausasSql.replace("{desde}", desde), rs -> {
+            long ini = rs.getLong("ini");
+            if (rs.wasNull() || ini <= 0) {
+                return;
+            }
+            long f = rs.getLong("fim");
+            Long fim = rs.wasNull() || f < ini ? null : f;
+            pausas.computeIfAbsent(rs.getString("agente"), k -> new ArrayList<>()).add(new Pausa(ini, fim, null, null, null));
+        });
+        pausas.values().forEach(l -> l.sort(Comparator.comparingLong(Pausa::ini)));
+        return pausas;
     }
 }

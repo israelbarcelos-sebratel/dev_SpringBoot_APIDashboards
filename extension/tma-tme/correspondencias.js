@@ -24,6 +24,55 @@ const ORIGEM = {
 
 let dados = null;
 let filtro = "conferir";
+/** Coluna escolhida no cabeçalho ({ col, dir }); null = ordem do servidor. */
+let ordem = null;
+
+const COLUNAS = [
+  { chave: "matrix", titulo: "Matrix", valor: (l) => (l.tipo === "par" ? l.par.matrix : l.matrix) || "" },
+  { chave: "native", titulo: "Native", valor: (l) => (l.tipo === "par" ? l.par.nativo : l.nativo) || "" },
+  { chave: "situacao", titulo: "Situação", valor: (l) => (l.tipo === "par" ? (ORIGEM[l.par.origem] || [l.par.origem])[0] + (l.par.setorDiferente ? " · setor diferente" : "") : l.tipo === "soMatrix" ? "Sem par na Native" : "Sem par na Matrix") },
+  { chave: "acoes", titulo: "" },
+];
+
+/** Vazios ("—") no fim; texto de A a Z ou de Z a A. */
+function ordenar(lista) {
+  const c = ordem && COLUNAS.find((x) => x.chave === ordem.col);
+  if (!c) return lista;
+  const dir = ordem.dir === "asc" ? 1 : -1;
+  return [...lista].sort((a, b) => {
+    const va = c.valor(a);
+    const vb = c.valor(b);
+    if (!va || !vb) return !va === !vb ? 0 : !va ? 1 : -1;
+    return va.localeCompare(vb, "pt-BR") * dir;
+  });
+}
+
+/** 1º clique: A→Z; 2º: Z→A; 3º: volta à ordem padrão. */
+function cabecalho() {
+  return el("tr", {}, ...COLUNAS.map((c) => {
+    const th = el("th", { text: c.titulo, scope: "col" });
+    if (!c.valor) {
+      th.style.cursor = "default";
+      return th;
+    }
+    const ativa = ordem?.col === c.chave;
+    if (ativa) th.setAttribute("aria-sort", ordem.dir === "asc" ? "ascending" : "descending");
+    th.tabIndex = 0;
+    th.title = ativa && ordem.dir === "desc" ? "Clique para voltar à ordem padrão" : `Ordenar por ${c.titulo}`;
+    const clicar = () => {
+      ordem = !ativa ? { col: c.chave, dir: "asc" } : ordem.dir === "asc" ? { col: c.chave, dir: "desc" } : null;
+      desenharLista();
+    };
+    th.addEventListener("click", clicar);
+    th.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        clicar();
+      }
+    });
+    return th;
+  }));
+}
 
 function el(tag, attrs = {}, ...filhos) {
   const n = document.createElement(tag);
@@ -102,13 +151,13 @@ function preparar(matrix, nativo) {
 function desenharLista() {
   const f = FILTROS.find((x) => x.chave === filtro);
   const busca = $("busca").value.trim().toLowerCase();
-  const lista = linhas()
+  const lista = ordenar(linhas()
     .filter(f.teste)
     .filter((l) => {
       if (!busca) return true;
       const txt = l.tipo === "par" ? `${l.par.matrix} ${l.par.nativo}` : l.matrix || l.nativo;
       return txt.toLowerCase().includes(busca);
-    });
+    }));
 
   const card = $("lista");
   card.innerHTML = "";
@@ -155,7 +204,7 @@ function desenharLista() {
     }
     tbody.append(tr);
   }
-  const head = el("tr", {}, ...["Matrix", "Native", "Situação", ""].map((t) => el("th", { text: t, scope: "col" })));
+  const head = cabecalho();
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, head), tbody));
   card.append(wrap);
