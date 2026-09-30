@@ -1,0 +1,4 @@
+faster-whisper==1.2.1
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+pymysql>=1.1,<2

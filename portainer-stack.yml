@@ -103,5 +103,47 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Análise diária das ligações (regra Mute / "linha com problema"): baixa as gravações, transcreve com Whisper
+  # LOCAL (o áudio não sai do servidor), aplica as regras e grava no app-db. Quem dispara é o workflow do n8n
+  # (n8n/analise-ligacoes.json), pela rede do n8n: http://analise-ligacoes:8000. Sem porta publicada.
+  # Opcionais na stack: ANALISE_TOKEN (exige o header X-Token), ANALISE_WORKERS/THREADS/MODELO, ANALISE_RETENCAO_DIAS.
+  analise-ligacoes:
+    build:
+      context: ./analise-ligacoes
+    image: analise-ligacoes:local
+    pull_policy: build
+    container_name: analise-ligacoes
+    environment:
+      DB_HOST: "${DB_HOST}"
+      DB_PORT: "${DB_PORT:-3306}"
+      DB_NAME: "${DB_NAME}"
+      DB_USER: "${DB_USER}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      <<: *app-db-env
+      ANALISE_TOKEN: "${ANALISE_TOKEN:-}"
+      WORKERS: "${ANALISE_WORKERS:-2}"
+      THREADS: "${ANALISE_THREADS:-3}"
+      MODELO: "${ANALISE_MODELO:-medium}"
+      RETENCAO_DIAS: "${ANALISE_RETENCAO_DIAS:-90}"
+    volumes:
+      - whisper-modelos:/modelos   # modelo do Whisper (~1,5 GB, baixado no primeiro uso)
+    # O servidor é dividido com as APIs e outros ~45 containers: o n8n roda de madrugada e isto fica limitado.
+    cpus: 6
+    mem_limit: 6g
+    networks:
+      - default
+      - n8n
+    depends_on:
+      app-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  # Rede onde estão o n8n e o n8n-worker (stack "redis"/"n8n").
+  n8n:
+    external: true
+    name: redis-alpine-net
+
 volumes:
   app-db-data:
+  whisper-modelos:

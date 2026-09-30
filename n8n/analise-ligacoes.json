@@ -1,0 +1,567 @@
+{
+  "name": "Análise de ligações – Mute / linha com problema",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 1 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000001",
+      "name": "Todo dia 01:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a1f0c001-0000-4000-8000-000000000002",
+      "name": "Executar manualmente",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dia analisado: ontem (fuso de Brasília). Para reprocessar outro dia, troque `data` por 'AAAA-MM-DD'.\nconst data = $now.setZone('America/Sao_Paulo').minus({ days: 1 }).toFormat('yyyy-MM-dd');\nreturn [{ json: {\n  data,\n  // Container da stack \"dashboards\", na rede do n8n (sem porta publicada).\n  base: 'http://analise-ligacoes:8000',\n  // Só se ANALISE_TOKEN estiver definido na stack; vazio = sem token.\n  token: '',\n  // Modelo do Gemini usado no entendimento.\n  modeloGemini: 'gemini-2.5-flash',\n} }];"
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000003",
+      "name": "Configuração",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuração').first().json.base }}/analises",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Token",
+              "value": "={{ $('Configuração').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ data: $('Configuração').first().json.data }) }}",
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000004",
+      "name": "Iniciar análise (download + Whisper + regras)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "minutes"
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000005",
+      "name": "Aguardar 5 min",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        100
+      ],
+      "webhookId": "a1f0c001-0000-4000-8000-0000000000aa"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Configuração').first().json.base }}/analises/{{ $('Configuração').first().json.data }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Token",
+              "value": "={{ $('Configuração').first().json.token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000006",
+      "name": "Andamento (tabela 0/1/2)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c0000001-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "pronto",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000007",
+      "name": "Terminou?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c0000002-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "erro",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000008",
+      "name": "Deu erro?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "=Análise de {{ $json.data }} parou: status {{ $json.status }} {{ $json.erro || '' }} (tabela {{ JSON.stringify($json.tabela) }})"
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000009",
+      "name": "Falhou",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Configuração').first().json.base }}/analises/{{ $('Configuração').first().json.data }}/suspeitas",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Token",
+              "value": "={{ $('Configuração').first().json.token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000010",
+      "name": "Ligações suspeitas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        -60
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c0000003-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.protocolo }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000011",
+      "name": "Tem suspeitas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $('Configuração').first().json.modeloGemini }}:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiRequest) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 4000
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000012",
+      "name": "Gemini – entendimento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        -160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta a resposta de cada ligação com o protocolo (mesma ordem da entrada do Gemini).\nconst suspeitas = $('Tem suspeitas?').all();\nconst itens = $input.all().map((it, i) => {\n  const protocolo = suspeitas[i].json.protocolo;\n  if (it.json.error || !it.json.candidates) {\n    return { protocolo, erro: JSON.stringify(it.json.error || it.json).slice(0, 300) };\n  }\n  return { protocolo, resposta: it.json };\n});\nreturn [{ json: { itens } }];"
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000013",
+      "name": "Montar avaliações",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuração').first().json.base }}/analises/{{ $('Configuração').first().json.data }}/avaliacoes",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Token",
+              "value": "={{ $('Configuração').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.itens) }}",
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000014",
+      "name": "Gravar avaliações",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Configuração').first().json.base }}/analises/{{ $('Configuração').first().json.data }}/resumo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Token",
+              "value": "={{ $('Configuração').first().json.token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000015",
+      "name": "Resumo do dia",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        -60
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c0000004-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.rodandoAgora }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000016",
+      "name": "Ainda rodando?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Todo dia 01:00": {
+      "main": [
+        [
+          {
+            "node": "Configuração",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executar manualmente": {
+      "main": [
+        [
+          {
+            "node": "Configuração",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuração": {
+      "main": [
+        [
+          {
+            "node": "Iniciar análise (download + Whisper + regras)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Iniciar análise (download + Whisper + regras)": {
+      "main": [
+        [
+          {
+            "node": "Aguardar 5 min",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aguardar 5 min": {
+      "main": [
+        [
+          {
+            "node": "Andamento (tabela 0/1/2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Andamento (tabela 0/1/2)": {
+      "main": [
+        [
+          {
+            "node": "Terminou?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Terminou?": {
+      "main": [
+        [
+          {
+            "node": "Ligações suspeitas",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deu erro?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ligações suspeitas": {
+      "main": [
+        [
+          {
+            "node": "Tem suspeitas?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem suspeitas?": {
+      "main": [
+        [
+          {
+            "node": "Gemini – entendimento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resumo do dia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini – entendimento": {
+      "main": [
+        [
+          {
+            "node": "Montar avaliações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar avaliações": {
+      "main": [
+        [
+          {
+            "node": "Gravar avaliações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar avaliações": {
+      "main": [
+        [
+          {
+            "node": "Resumo do dia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deu erro?": {
+      "main": [
+        [
+          {
+            "node": "Falhou",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ainda rodando?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ainda rodando?": {
+      "main": [
+        [
+          {
+            "node": "Aguardar 5 min",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Iniciar análise (download + Whisper + regras)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveManualExecutions": true
+  },
+  "pinData": {}
+}
