@@ -361,7 +361,16 @@ function desenharResumo() {
     const tr = el("tr", { class: item.grupo ? "grupo" : "" }, el("td", { class: "item", text: item.rotulo }));
     for (const dia of dias) tr.append(celulaResumo(item, r, { d: porDia[item.sis.chave][dia] || null, titulo: dia === hoje ? "hoje, até agora" : dia.split("-").reverse().join("/") }));
     const tdVoce = celulaResumo(item, r, { m: r.voce, titulo: "Sua média no período" });
-    const tdSetor = celulaResumo(item, r, { m: ref, titulo: `Média de ${ref.atendentes} colega(s) do ${grupoRef} (${item.sis.titulo}) no mesmo período` });
+    // Outliers ficam fora só da média do setor (cada um continua vendo os próprios números completos).
+    const chave = item.tipo === "tempo" ? item.chave : item.tipo === "logado" ? "logadoSegundos" : item.tipo === "pausa" ? "pausaSegundos" : "atendimentos";
+    const base = ref.base?.[chave] ?? ref.atendentes;
+    const fora = ref.outliers?.[chave] || 0;
+    const tdSetor = celulaResumo(item, r, {
+      m: ref,
+      titulo: `Média de ${base} colega(s) do ${grupoRef} (${item.sis.titulo}) no mesmo período` +
+        (fora === 1 ? " · 1 colega não entrou por estar muito acima ou abaixo do padrão do setor (outlier)"
+          : fora > 1 ? ` · ${fora} colegas não entraram por estarem muito acima ou abaixo do padrão do setor (outliers)` : ""),
+    });
     tdVoce.classList.add("media");
     tdSetor.classList.add("media");
     tr.append(tdVoce, tdSetor);
@@ -376,6 +385,8 @@ function desenharResumo() {
     text: "Cada coluna é um dia com atividade (dias sem atendimento nem login não aparecem). " +
       "As médias não contam hoje (dia em andamento). Sua média: atendimentos por dia com atendimento, TMA/TME sobre todos os atendimentos do período, pausa por dia com atendimento e tempo logado por dia com login. " +
       `Média do setor: a mesma conta para cada colega do seu setor no mesmo período, cada um pesando igual — ${setores}. ` +
+      "Em cada item, quem está muito fora do padrão do setor (outlier: acima de Q3 + 1,5×IQR ou abaixo de Q1 − 1,5×IQR) não entra na média do setor — " +
+      "mas os números de cada pessoa aparecem sempre completos na tabela dela. Passe o mouse na média do setor para ver quantos colegas entraram na conta. " +
       "Tempo em pausa: pausas encerradas, no dia em que começaram. ≈: a Native só grava a sessão no logoff; a de hoje é estimada da primeira ligação ou pausa depois do último logoff. " +
       "TMA/TME: verde dentro do limite, vermelho acima.",
   }));
