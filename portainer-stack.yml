@@ -53,6 +53,9 @@ services:
         MODULE: matrix-api
         PORT: "8091"
     image: matrix-api:local
+    # Imagem só existe no host (build local): o compose nunca deve tentar baixá-la de um registro,
+    # mesmo com "Re-pull image" ligado no Portainer.
+    pull_policy: build
     container_name: matrix-api
     ports:
       - "8091:8091"
@@ -79,6 +82,9 @@ services:
         MODULE: native-api
         PORT: "8092"
     image: native-api:local
+    # Imagem só existe no host (build local): o compose nunca deve tentar baixá-la de um registro,
+    # mesmo com "Re-pull image" ligado no Portainer.
+    pull_policy: build
     container_name: native-api
     ports:
       - "8092:8092"
