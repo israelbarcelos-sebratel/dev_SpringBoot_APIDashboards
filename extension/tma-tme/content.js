@@ -1,5 +1,13 @@
 (function () {
+  // O background pode injetar este script de novo (botão "Mostrar" ou atualização da extensão).
+  // Se já há um script vivo desta extensão na aba (mesmo "mundo" isolado), não duplica.
+  if (window.__sebratelTmaAtivo) return;
+  window.__sebratelTmaAtivo = true;
+  // Widget que sobrou de um script órfão (extensão recarregada): sai para o novo assumir.
+  document.getElementById("sebratel-tma-widget")?.remove();
+
   const REFRESH_MS = 15000;
+  const SebratelConfigKey = "sebratelConfig"; // mesma chave do api.js (CONFIG_KEY)
   const STORAGE_KEY = "sebratelWidgetState";
 
   function fmt(seconds) {
@@ -55,6 +63,10 @@
           <button type="button" class="hbtn close-btn" title="Fechar">&times;</button>
         </span>
       </div>
+      <div class="switcher" role="tablist" aria-label="Mostrar dados de" hidden>
+        <button type="button" class="sw-btn" role="tab" data-secao="native" aria-selected="true">Native</button>
+        <button type="button" class="sw-btn" role="tab" data-secao="matrix" aria-selected="false">Matrix</button>
+      </div>
       <div class="body">
         <div class="section" id="sebratel-section-native">
           <div class="section-title"><span class="marker">Native · hoje</span><span class="section-meta" id="sebratel-native-meta"></span></div>
@@ -103,12 +115,19 @@
         <span id="sebratel-agent-name">--</span>
         <span id="sebratel-updated-at">--</span>
       </div>
+      <div class="resize-grip" title="Arraste para cima/baixo para redimensionar · duplo clique alterna entre compacto e completo"></div>
     `;
     document.body.appendChild(el);
 
     el.querySelector(".close-btn").addEventListener("click", () => {
+      // Fecha só nesta aba (continua fechado no F5); as outras abas não mudam.
       el.style.display = "none";
-      saveState({ hidden: true });
+      if (!extensaoValida()) return;
+      try {
+        chrome.runtime.sendMessage({ type: "widgetFechar" });
+      } catch {
+        /* script órfão */
+      }
     });
 
     el.querySelector(".pin-btn").addEventListener("click", () => {
@@ -127,7 +146,123 @@
     });
 
     makeDraggable(el, el.querySelector(".header"));
+    makeResizable(el);
     return el;
+  }
+
+  // ---- Redimensionar (altura) + escolher Native/Matrix quando compacto ----
+
+  let alturaDesejada = null; // px do corpo; null = completo (tudo à mostra)
+  let secaoAtual = "native";
+
+  const corpo = (el) => el.querySelector(".body");
+  const secao = (el, s) => el.querySelector(`#sebratel-section-${s}`);
+
+  /** Mínimo = cabe inteira a maior das duas seções; máximo = tudo à mostra (limitado à janela). */
+  function limitesAltura(el) {
+    const body = corpo(el);
+    const cs = getComputedStyle(body);
+    const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const min = Math.ceil(Math.max(secao(el, "native").offsetHeight, secao(el, "matrix").offsetHeight) + pad);
+    const total = body.scrollHeight;
+    const resto = el.offsetHeight - body.offsetHeight + 34; // cabeçalho, seletor, rodapé, alça e respiro
+    const janela = Math.max(min, window.innerHeight - resto);
+    return { min, total, max: Math.min(total, janela) };
+  }
+
+  /** Aplica a altura desejada respeitando os limites; compacto = corpo menor que o conteúdo. */
+  function ajustarAltura(el) {
+    if (el.style.display === "none") return;
+    const body = corpo(el);
+    const antes = body.style.height;
+    body.style.height = ""; // mede o tamanho natural
+    const { min, total, max } = limitesAltura(el);
+    const alvo = alturaDesejada === null ? max : Math.min(Math.max(alturaDesejada, min), max);
+    const compacto = alvo < total - 2;
+    body.style.height = compacto ? `${alvo}px` : "";
+    el.classList.toggle("compacto", compacto);
+    el.querySelector(".switcher").hidden = !compacto;
+    if (compacto && antes !== body.style.height) marcarSecaoVisivel(el);
+  }
+
+  function marcarSecao(el, s) {
+    secaoAtual = s;
+    for (const b of el.querySelectorAll(".sw-btn")) b.setAttribute("aria-selected", String(b.dataset.secao === s));
+  }
+
+  /** Seção cujo topo está mais perto do topo da área visível. */
+  function marcarSecaoVisivel(el) {
+    const body = corpo(el);
+    const fimDaRolagem = body.scrollTop + body.clientHeight >= body.scrollHeight - 2;
+    const perto = (s) => Math.abs(secao(el, s).offsetTop - body.scrollTop);
+    marcarSecao(el, fimDaRolagem || perto("matrix") < perto("native") ? "matrix" : "native");
+  }
+
+  function irParaSecao(el, s, suave) {
+    const body = corpo(el);
+    const top = s === "native" ? 0 : secao(el, "matrix").offsetTop - parseFloat(getComputedStyle(body).paddingTop);
+    body.scrollTo({ top, behavior: suave ? "smooth" : "auto" });
+    marcarSecao(el, s);
+  }
+
+  function makeResizable(el) {
+    const grip = el.querySelector(".resize-grip");
+    const body = corpo(el);
+
+    grip.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      // Ancora pelo topo: a borda de baixo acompanha o mouse (o widget nasce preso ao canto inferior).
+      const r = el.getBoundingClientRect();
+      el.style.left = `${r.left}px`;
+      el.style.top = `${r.top}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      const y0 = e.clientY;
+      const h0 = body.getBoundingClientRect().height;
+      el.classList.add("resizing");
+
+      const mover = (ev) => {
+        alturaDesejada = h0 + (ev.clientY - y0);
+        ajustarAltura(el);
+      };
+      const soltar = () => {
+        grip.removeEventListener("pointermove", mover);
+        grip.removeEventListener("pointerup", soltar);
+        grip.removeEventListener("pointercancel", soltar);
+        el.classList.remove("resizing");
+        if (!el.classList.contains("compacto")) alturaDesejada = null; // esticou até o fim = completo
+        saveState({ altura: alturaDesejada, left: el.style.left, top: el.style.top });
+      };
+      grip.addEventListener("pointermove", mover);
+      grip.addEventListener("pointerup", soltar);
+      grip.addEventListener("pointercancel", soltar);
+    });
+
+    // Duplo clique: completo <-> compacto (mostrando a seção escolhida).
+    grip.addEventListener("dblclick", () => {
+      const escolhida = secaoAtual;
+      alturaDesejada = el.classList.contains("compacto") ? null : 0;
+      ajustarAltura(el);
+      if (alturaDesejada !== null) irParaSecao(el, escolhida, false);
+      saveState({ altura: alturaDesejada });
+    });
+
+    for (const b of el.querySelectorAll(".sw-btn")) {
+      b.addEventListener("click", () => {
+        irParaSecao(el, b.dataset.secao, true);
+        saveState({ secao: b.dataset.secao });
+      });
+    }
+
+    let fimRolagem = null;
+    body.addEventListener("scroll", () => {
+      if (!el.classList.contains("compacto")) return;
+      marcarSecaoVisivel(el);
+      clearTimeout(fimRolagem);
+      fimRolagem = setTimeout(() => saveState({ secao: secaoAtual }), 400);
+    }, { passive: true });
   }
 
   /** Se o widget ficou fora da tela (arrastado demais, janela redimensionada), volta ao canto. */
@@ -332,9 +467,12 @@
   }
 
   let timer = null;
+  let pedido = 0; // só a resposta do pedido mais recente é desenhada
 
   async function refresh(el) {
+    const meu = ++pedido;
     const resp = await requestMetrics();
+    if (meu !== pedido) return; // chegou depois de um pedido mais novo (ex.: trocou de pessoa)
     if (resp.orfao && timer) {
       // Script órfão: para de consultar (cada tentativa só geraria erro) e deixa o aviso na tela.
       clearInterval(timer);
@@ -347,20 +485,40 @@
         native: { available: false, error: resp.error },
         matrix: { available: false, error: resp.error },
       });
+      ajustarAltura(el);
       return;
     }
     renderMetrics(el, resp.data);
+    ajustarAltura(el); // conteúdo pode ter mudado de tamanho (ex.: aviso de erro)
     saveState({ lastMetrics: resp.data });
   }
 
+  /** Estado desta aba no background: true = fechado aqui, false = reaberto aqui, null = sem escolha. */
+  function estadoDaAba() {
+    return new Promise((resolve) => {
+      if (!extensaoValida()) {
+        resolve(null);
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage({ type: "widgetAba" }, (resp) => {
+          resolve(chrome.runtime.lastError || !resp ? null : resp.oculto);
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
   async function init() {
-    const state = await loadState();
+    const [state, ocultoNaAba] = await Promise.all([loadState(), estadoDaAba()]);
     const el = buildWidget();
     if (!el) return; // já existia (ex.: SPA re-injetando)
 
-    if (state.hidden) {
-      el.style.display = "none";
-    }
+    // Fechar/reabrir vale por aba; sem escolha nesta aba, segue "abrir automaticamente em novas
+    // abas" do popup (ligado por padrão).
+    const oculto = ocultoNaAba !== null ? ocultoNaAba : state.autoAbrir === false;
+    el.style.display = oculto ? "none" : "block";
     aplicarPin(el, state.pinned);
     if (state.left && state.top) {
       el.style.left = state.left;
@@ -368,13 +526,22 @@
       el.style.right = "auto";
       el.style.bottom = "auto";
     }
+    alturaDesejada = typeof state.altura === "number" ? state.altura : null;
+    const secaoSalva = state.secao === "matrix" ? "matrix" : "native";
+    ajustarAltura(el);
+    if (el.classList.contains("compacto")) irParaSecao(el, secaoSalva, false);
     garantirVisivel(el);
-    window.addEventListener("resize", () => garantirVisivel(el));
+    window.addEventListener("resize", () => {
+      ajustarAltura(el);
+      garantirVisivel(el);
+    });
 
     // Mostra o último dado conhecido imediatamente, sem esperar o fetch,
     // para não "piscar" ao trocar de página.
     if (state.lastMetrics) {
       renderMetrics(el, state.lastMetrics);
+      ajustarAltura(el);
+      if (el.classList.contains("compacto")) irParaSecao(el, secaoSalva, false);
     }
 
     timer = setInterval(() => refresh(el).catch(() => {}), REFRESH_MS);
@@ -383,8 +550,35 @@
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local" || !changes[STORAGE_KEY]) return;
       const newVal = changes[STORAGE_KEY].newValue || {};
-      el.style.display = newVal.hidden ? "none" : "block";
-      aplicarPin(el, newVal.pinned); // fixar numa aba vale para todas
+      aplicarPin(el, newVal.pinned); // fixar numa aba vale para todas (abrir/fechar não)
+    });
+
+    // Admin trocou "Ver dados de" no popup: atualiza na hora, sem esperar o próximo ciclo, e limpa
+    // os números da pessoa anterior enquanto os novos chegam.
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const cfg = changes[SebratelConfigKey];
+      if (area !== "local" || !cfg) return;
+      if ((cfg.oldValue?.viewingAgent || "") === (cfg.newValue?.viewingAgent || "")) return;
+      renderMetrics(el, {
+        agent: "carregando…",
+        updatedAt: new Date().toISOString(),
+        native: { available: true },
+        matrix: { available: true },
+      });
+      refresh(el).catch(() => {});
+      if (timer) {
+        clearInterval(timer); // recomeça a contagem a partir de agora
+        timer = setInterval(() => refresh(el).catch(() => {}), REFRESH_MS);
+      }
+    });
+
+    // "Mostrar nesta aba" do popup.
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg?.type !== "widgetMostrar") return;
+      const escolhida = secaoAtual;
+      el.style.display = "block";
+      ajustarAltura(el);
+      if (el.classList.contains("compacto")) irParaSecao(el, escolhida, false);
       garantirVisivel(el);
     });
   }

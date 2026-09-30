@@ -130,7 +130,7 @@ $("pref-select").addEventListener("change", async (e) => {
 
 $("viewing-agent").addEventListener("change", async (e) => {
   await SebratelApi.setConfig({ viewingAgent: e.target.value });
-  msg("O widget vai atualizar em até 15s.", "ok");
+  msg(e.target.value ? `Widget mostrando ${e.target.value}.` : "Widget mostrando os seus dados.", "ok");
 });
 
 $("mg-save").addEventListener("click", async () => {
@@ -153,6 +153,11 @@ $("mg-save").addEventListener("click", async () => {
   }
 });
 
+$("ofensores-btn").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("ofensores.html") });
+  window.close();
+});
+
 $("corr-btn").addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("correspondencias.html") });
   window.close();
@@ -164,10 +169,25 @@ $("detalhe-btn").addEventListener("click", () => {
 });
 
 $("show-btn").addEventListener("click", async () => {
-  // Só fecha depois de gravar: fechar o popup antes interrompe o get/set e o widget nunca reaparece.
-  const r = await chrome.storage.local.get(["sebratelWidgetState"]);
-  await chrome.storage.local.set({ sebratelWidgetState: { ...(r.sebratelWidgetState || {}), hidden: false } });
+  // Reabre só na aba atual. Só fecha o popup depois da resposta: fechar antes interrompe o pedido.
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const resp = tab ? await chrome.runtime.sendMessage({ type: "widgetMostrar", tabId: tab.id }).catch(() => null) : null;
+  if (!resp?.ok) {
+    msg("Esta página não aceita o widget (páginas internas do Chrome, Web Store e PDFs).");
+    return;
+  }
   window.close();
+});
+
+// Preferência global: abrir o widget sozinho em abas novas (fechar numa aba continua valendo só nela).
+chrome.storage.local.get(["sebratelWidgetState"], (r) => {
+  $("auto-abrir").checked = (r.sebratelWidgetState || {}).autoAbrir !== false;
+});
+$("auto-abrir").addEventListener("change", async (e) => {
+  const r = await chrome.storage.local.get(["sebratelWidgetState"]);
+  const { hidden, ...estado } = r.sebratelWidgetState || {}; // "hidden" global antigo não vale mais
+  await chrome.storage.local.set({ sebratelWidgetState: { ...estado, autoAbrir: e.target.checked } });
+  msg(e.target.checked ? "O widget vai abrir sozinho em novas abas." : "O widget só abre nas abas em que você mandar mostrar.", "ok");
 });
 
 $("logout-btn").addEventListener("click", async () => {
