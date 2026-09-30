@@ -2,6 +2,7 @@
 N processos (um modelo Whisper cada) e depois aplica as regras. Tudo fica em analise_ligacao, com o status
 0 = ainda não feito, 1 = trabalhando, 2 = pronto. Retoma sozinho: o que está em 2 não é refeito."""
 import datetime as dt
+import gc
 import json
 import logging
 import multiprocessing as mp
@@ -12,6 +13,7 @@ import urllib.error
 import urllib.request
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
 
 from . import db, regras
 
@@ -27,6 +29,10 @@ MODELO = os.environ.get("MODELO", "medium")
 RETENCAO_DIAS = int(os.environ.get("RETENCAO_DIAS", "90"))
 TMP = os.environ.get("TMP_AUDIO", "/tmp/audios")
 HREF = re.compile(r'href="([^"]+)"')
+# O faster-whisper vai acumulando memória num mesmo processo: cada worker é trocado depois de N ligações
+# (recarregar o modelo leva ~10 s). Sem isso o sistema mata o worker no meio do dia.
+RECICLAR = int(os.environ.get("RECICLAR_A_CADA", "40"))
+QUEDAS_MAX = 2   # a mesma ligação estava no worker em 2 quedas -> erro nela e segue o dia
 
 _lock = threading.Lock()
 _rodando = {"data": None}
@@ -54,6 +60,7 @@ def transcrever(protocolo, caminho):
     from faster_whisper import decode_audio
     from faster_whisper.vad import VadOptions, get_speech_timestamps
     r = {"protocolo": protocolo, "worker": f"w{os.getpid()}"}
+    audio = None
     try:
         audio = decode_audio(caminho, sampling_rate=SR)
         dur = len(audio) / SR
@@ -80,6 +87,8 @@ def transcrever(protocolo, caminho):
     except Exception as e:  # noqa: BLE001 - uma gravação ruim não derruba o dia
         r["erro"] = f"transcrição: {e}"[:500]
     finally:
+        audio = None
+        gc.collect()
         if os.path.exists(caminho):
             os.remove(caminho)
     return r
@@ -181,6 +190,15 @@ def _baixar(protocolo, url):
                 raise
 
 
+class _PoolCaiu(Exception):
+    """Um worker morreu (quase sempre memória): leva as ligações que estavam em andamento."""
+
+    def __init__(self, no_worker, baixando):
+        super().__init__("worker do Whisper caiu")
+        self.no_worker = no_worker
+        self.baixando = baixando
+
+
 def _transcrever_pendentes(con, data):
     os.makedirs(TMP, exist_ok=True)
     for f in os.listdir(TMP):
@@ -188,15 +206,42 @@ def _transcrever_pendentes(con, data):
     with con.cursor() as cur:
         cur.execute("SELECT protocolo, gravacao FROM analise_ligacao WHERE data=%s AND status=0 ORDER BY hora", (data,))
         pend = deque(cur.fetchall())
+    por_id = {l["protocolo"]: l for l in pend}
+    quedas = {}
 
     def marcar(sql, args):
         with con.cursor() as cur:
             cur.execute(sql, args)
 
+    while True:
+        try:
+            _rodar_pool(data, pend, marcar)
+            return
+        except _PoolCaiu as q:
+            # Pool novo; quem estava em andamento volta para a fila (status 0), menos a ligação que já
+            # derrubou o worker QUEDAS_MAX vezes.
+            log.warning("%s: worker caiu com %s no Whisper; recriando", data, q.no_worker)
+            for p in q.no_worker:
+                quedas[p] = quedas.get(p, 0) + 1
+            voltam = []
+            for p in q.no_worker + q.baixando:
+                if quedas.get(p, 0) >= QUEDAS_MAX:
+                    marcar("UPDATE analise_ligacao SET status=2, etapa='pronto', fim=NOW(),"
+                           " erro='o worker do Whisper caiu 2 vezes nesta ligação (memória?)' WHERE data=%s AND protocolo=%s",
+                           (data, p))
+                else:
+                    marcar("UPDATE analise_ligacao SET status=0, etapa=NULL WHERE data=%s AND protocolo=%s", (data, p))
+                    voltam.append(por_id[p])
+            pend.extendleft(reversed(voltam))
+            for f in os.listdir(TMP):
+                os.remove(os.path.join(TMP, f))
+
+
+def _rodar_pool(data, pend, marcar):
     em_voo = {}
     ctx = mp.get_context("spawn")
-    with ThreadPoolExecutor(WORKERS) as downloads, \
-            ProcessPoolExecutor(WORKERS, mp_context=ctx, initializer=_iniciar_worker, initargs=(MODELO, THREADS)) as whisper:
+    with ThreadPoolExecutor(WORKERS) as downloads,             ProcessPoolExecutor(WORKERS, mp_context=ctx, initializer=_iniciar_worker, initargs=(MODELO, THREADS),
+                                max_tasks_per_child=RECICLAR) as whisper:
         while pend or em_voo:
             while pend and len(em_voo) < WORKERS * 2:  # download adiantado: o worker nunca espera
                 l = pend.popleft()
@@ -220,15 +265,29 @@ def _transcrever_pendentes(con, data):
                                " WHERE data=%s AND protocolo=%s", (f"download: {e}"[:500], data, p))
                         continue
                     marcar("UPDATE analise_ligacao SET etapa='transcrevendo' WHERE data=%s AND protocolo=%s", (data, p))
-                    em_voo[whisper.submit(transcrever, p, caminho)] = ("transcrever", p)
+                    try:
+                        em_voo[whisper.submit(transcrever, p, caminho)] = ("transcrever", p)
+                    except BrokenProcessPool:
+                        em_voo[fut] = ("transcrever", p)  # entra na conta das que estavam no worker
+                        raise _PoolCaiu(*_em_andamento(em_voo)) from None
                 else:
-                    r = fut.result()
+                    try:
+                        r = fut.result()
+                    except BrokenProcessPool:
+                        em_voo[fut] = (tipo, p)
+                        raise _PoolCaiu(*_em_andamento(em_voo)) from None
                     marcar("UPDATE analise_ligacao SET status=2, etapa='pronto', worker=%s, fim=NOW(), erro=%s, duracao=%s,"
                            " fala_seg=%s, inicio_fala=%s, buracos=%s, transcrito=%s, segmentos=%s"
                            " WHERE data=%s AND protocolo=%s",
                            (r["worker"], r.get("erro"), r.get("duracao"), r.get("falaSeg"), r.get("inicioFala"),
                             json.dumps(r.get("buracos")), json.dumps(r.get("transcrito")),
                             json.dumps(r.get("segmentos"), ensure_ascii=False), data, p))
+
+
+def _em_andamento(em_voo):
+    no_worker = [p for t, p in em_voo.values() if t == "transcrever"]
+    baixando = [p for t, p in em_voo.values() if t == "baixar"]
+    return no_worker, baixando
 
 
 def analisar(con, data):
