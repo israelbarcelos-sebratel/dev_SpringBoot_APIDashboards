@@ -634,19 +634,22 @@ function detalhePessoa(resp, a, ncols) {
     el("tbody", {}, ...tipos.map(([tipo, t]) => el("tr", {},
       el("td", { text: tipo }), el("td", { text: String(t.qtd) }), el("td", { text: horasFmt(t.segundos) }),
       resp.indicadores.previsto ? el("td", { text: t.previsto ? String(t.excedidas) : "—" }) : null))));
-  const blocos = [el("div", {}, el("h4", { text: `Pausas por tipo (${x.pausas})` }), tipos.length ? tTipos : el("p", { class: "muted", text: "Nenhuma pausa." }))];
+  // Uma coluna só, de cima para baixo: pausas por tipo, resumo e motivos digitados (só a Native tem).
+  const coluna = el("div", { class: "detalhe-col" },
+    el("div", {}, el("h4", { text: `Pausas por tipo (${x.pausas})` }), tipos.length ? tTipos : el("p", { class: "muted", text: "Nenhuma pausa." })));
+  let blocoMotivos = null;
   if (resp.indicadores.motivo) {
     const motivos = Object.entries(x.motivos).sort((p, q) => q[1] - p[1]).slice(0, 12);
-    blocos.push(el("div", {},
+    blocoMotivos = (el("div", {},
       el("h4", { text: "Motivos digitados" }),
       el("p", { class: "muted", style: "margin:0 0 6px", text: `${x.motivoGenerico} com motivo genérico (“.”, “,”, 1–2 letras) · ${x.semMotivo} sem motivo (tipo que não pede)` }),
       motivos.length
         ? el("table", { class: "mini" }, el("tbody", {}, ...motivos.map(([m, n]) => el("tr", {}, el("td", { text: m }), el("td", { text: String(n) })))))
         : el("p", { class: "muted", text: "Nenhum motivo com texto." })));
   }
-  blocos.push(el("div", {},
+  coluna.append(el("div", {},
     el("h4", { text: "Resumo" }),
-    el("table", { class: "mini" }, el("tbody", {},
+    el("table", { class: "mini kv" }, el("tbody", {},
       ...[["Dias com atendimento", x.dias], ["Atendimentos", x.atendimentos], ["Tempo em pausa", horasFmt(x.pausaSegundos)],
         ["Tempo acima do previsto", resp.indicadores.previsto ? horasFmt(x.excedidoSegundos) : "—"],
         ["Maior ociosidade sem pausa", a.maiorOcioso ? fmt(a.maiorOcioso) : "—"],
@@ -656,8 +659,18 @@ function detalhePessoa(resp, a, ncols) {
           return [`Tempo logado ${s.titulo}`, !l ? "—" : `${l.estimado ? "≈" : ""}${hm(l.segundos)}${l.segundos ? ` · ${l.dias} dia(s) · ${l.sessoes} sessão(ões)` : ""}`];
         })]
         .map(([k, v]) => el("tr", {}, el("td", { text: k }), el("td", { text: String(v) })))))));
-  return el("tr", { class: "detalhe" }, el("td", { colspan: String(ncols) }, el("div", { class: "detalhe-grid" }, ...blocos)));
+  if (blocoMotivos) coluna.append(blocoMotivos);
+  return el("tr", { class: "detalhe" }, el("td", { colspan: String(ncols) }, el("div", { class: "detalhe-grid" }, coluna)));
 }
+
+/** Painel das linhas abertas com a largura da parte visível da tabela (senão ele se espalha pela tabela toda). */
+function ajustarDetalhes() {
+  for (const g of document.querySelectorAll("tr.detalhe .detalhe-grid")) {
+    const wrap = g.closest(".table-wrap");
+    if (wrap) g.style.width = `${Math.max(280, wrap.clientWidth - 30)}px`;
+  }
+}
+window.addEventListener("resize", ajustarDetalhes);
 
 function hm(s) {
   s = Math.round(s || 0);
@@ -823,6 +836,7 @@ Limite ${g.limite} · mediana da operação ${medTxt}/dia`, text: texto });
       if (sim && !aberto) {
         aberto = detalhePessoa(resp, l.a, ncols);
         tr.after(aberto);
+        ajustarDetalhes();
       } else if (!sim && aberto) {
         aberto.remove();
         aberto = null;
@@ -842,6 +856,7 @@ Limite ${g.limite} · mediana da operação ${medTxt}/dia`, text: texto });
   wrap.append(el("table", {}, el("thead", {}, cabecalho("pausas", colunas)), tbody));
   card.append(wrap);
   if (!prefs.todos && linhas.length > 30) card.append(el("p", { class: "legend", text: `Mostrando os 30 primeiros de ${linhas.length}.` }));
+  requestAnimationFrame(ajustarDetalhes); // linhas que já estavam abertas, agora com a tabela na tela
   card.append(el("p", { class: "legend", text: "Tempo logado: soma das sessões de login no período (sessões sobrepostas contam uma vez)" +
     (prefs.periodoNova === "hoje" ? ", até agora. " : "; em 30 dias, a média por dia com login. ") +
     `Native: a sessão só é gravada no logoff, então a de quem ainda está logado (≈) é estimada da primeira ligação ou pausa depois do último logoff até agora. ` +

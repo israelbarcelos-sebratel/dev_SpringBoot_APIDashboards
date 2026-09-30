@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Function;
 
 /**
@@ -40,6 +41,8 @@ public class ResumoDiario {
     private static final String DIMENSAO_ATENDENTE = "atendente";
     /** Longest period the table offers. */
     public static final int MAX_DIAS = 30;
+    /** Below this many colleagues the sector mean keeps everyone (quartiles mean nothing with 2 or 3). */
+    static final int MIN_PARA_OUTLIER = 4;
 
     /** One atendente's day. */
     public static final class Dia {
@@ -364,20 +367,60 @@ public class ResumoDiario {
                 atividade);
     }
 
-    /** Mean of the colleagues' averages, each colleague weighing the same (like the TMEA reference). */
+    /**
+     * Mean of the colleagues' averages, each colleague weighing the same (like the TMEA reference), without
+     * the outliers of each item (Tukey: outside [Q1 − 1.5·IQR, Q3 + 1.5·IQR]). The outlier only leaves the
+     * sector reference: on their own table they still see all of their numbers. {@code base} / {@code outliers}:
+     * per item, how many colleagues entered the mean and how many were left out.
+     */
     private static Map<String, Object> mediaDosColegas(List<Medias> colegas, Calculo c) {
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("atendimentos", media(colegas.stream().map(Medias::atendimentos).toList()));
+        Map<String, Integer> base = new LinkedHashMap<>();
+        Map<String, Integer> fora = new LinkedHashMap<>();
+        m.put("atendimentos", mediaSemOutliers(colegas.stream().map(Medias::atendimentos).toList(), "atendimentos", base, fora));
         Map<String, Double> tempos = new LinkedHashMap<>();
-        Set<String> chaves = new HashSet<>();
+        Set<String> chaves = new TreeSet<>();
         colegas.forEach(x -> chaves.addAll(x.tempos().keySet()));
         for (String k : chaves) {
-            tempos.put(k, media(colegas.stream().map(x -> x.tempos().get(k)).toList()));
+            tempos.put(k, mediaSemOutliers(colegas.stream().map(x -> x.tempos().get(k)).toList(), k, base, fora));
         }
         m.put("tempos", tempos);
-        m.put("pausaSegundos", c.temPausa() ? media(colegas.stream().map(Medias::pausaSegundos).toList()) : null);
-        m.put("logadoSegundos", c.temLogado() ? media(colegas.stream().map(Medias::logadoSegundos).toList()) : null);
+        m.put("pausaSegundos", c.temPausa()
+                ? mediaSemOutliers(colegas.stream().map(Medias::pausaSegundos).toList(), "pausaSegundos", base, fora) : null);
+        m.put("logadoSegundos", c.temLogado()
+                ? mediaSemOutliers(colegas.stream().map(Medias::logadoSegundos).toList(), "logadoSegundos", base, fora) : null);
+        m.put("base", base);
+        m.put("outliers", fora);
         return m;
+    }
+
+    private static Double mediaSemOutliers(List<Double> valores, String item, Map<String, Integer> base,
+                                           Map<String, Integer> fora) {
+        List<Double> presentes = valores.stream().filter(Objects::nonNull).toList();
+        List<Double> dentro = semOutliers(presentes);
+        base.put(item, dentro.size());
+        fora.put(item, presentes.size() - dentro.size());
+        return media(dentro);
+    }
+
+    /** Tukey's fences; with fewer than {@link #MIN_PARA_OUTLIER} values nothing is left out. */
+    static List<Double> semOutliers(List<Double> valores) {
+        List<Double> ord = valores.stream().sorted().toList();
+        if (ord.size() < MIN_PARA_OUTLIER) {
+            return ord;
+        }
+        double q1 = quartil(ord, 0.25);
+        double q3 = quartil(ord, 0.75);
+        double min = q1 - 1.5 * (q3 - q1);
+        double max = q3 + 1.5 * (q3 - q1);
+        return ord.stream().filter(v -> v >= min && v <= max).toList();
+    }
+
+    /** Linear interpolation between the closest ranks (sorted input). */
+    private static double quartil(List<Double> ord, double p) {
+        double pos = p * (ord.size() - 1);
+        int i = (int) Math.floor(pos);
+        return i + 1 < ord.size() ? ord.get(i) + (pos - i) * (ord.get(i + 1) - ord.get(i)) : ord.get(i);
     }
 
     private static Double media(List<Double> valores) {
