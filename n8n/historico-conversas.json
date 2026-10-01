@@ -3,35 +3,66 @@
   "nodes": [
     {
       "parameters": {
-        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
       },
       "id": "b2f0c001-0000-4000-8000-000000000001",
       "name": "A cada 15 min",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "notes": "O container processa um dia por vez, do mais antigo ao mais novo, e passa sozinho para o próximo. Este agendamento só garante que ele continua (ex.: depois de um redeploy)."
     },
     {
       "parameters": {
         "method": "POST",
         "url": "http://analise-ligacoes:8000/historico/avancar",
-        "options": { "timeout": 60000 }
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "options": {
+          "timeout": 60000
+        }
       },
       "id": "b2f0c001-0000-4000-8000-000000000002",
       "name": "Garantir histórico rodando",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [240, 0],
+      "position": [
+        240,
+        0
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "notes": "Resposta: status (iniciado | rodando | erro) e o andamento (dias 0/1/2, dia atual, ritmo, previsão)."
+      "notes": "Usa a MESMA credencial do Gemini da análise diária: o n8n manda a chave nesta chamada e o container a guarda só em memória (a chave fica só aqui no n8n). Resposta: status (iniciado | rodando | erro) e o andamento (dias 0/1/2, dia atual, ritmo, previsão)."
     }
   ],
   "connections": {
-    "A cada 15 min": { "main": [[{ "node": "Garantir histórico rodando", "type": "main", "index": 0 }]] }
+    "A cada 15 min": {
+      "main": [
+        [
+          {
+            "node": "Garantir histórico rodando",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "timezone": "America/Sao_Paulo", "saveDataSuccessExecution": "none" },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveDataSuccessExecution": "none"
+  },
   "pinData": {}
 }

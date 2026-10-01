@@ -1,5 +1,6 @@
 """Entendimento de uma conversa inteira pelo Gemini (histórico). Só vai o TEXTO já mascarado — o áudio nunca sai
-do servidor. Chave e modelo vêm da stack: GEMINI_API_KEY, GEMINI_MODELO."""
+do servidor. A chave fica só no n8n: o nó do histórico usa a credencial do Gemini e ela chega a cada chamada de
+POST /historico/avancar; aqui ela fica só em memória (nunca em banco, log ou stack)."""
 import json
 import os
 import time
@@ -7,7 +8,7 @@ import urllib.error
 import urllib.request
 
 API = "https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
-CHAVE = os.environ.get("GEMINI_API_KEY", "")
+CHAVE = ""
 MODELO = os.environ.get("GEMINI_MODELO", "gemini-3.8-flash")
 MAX_CARACTERES = 60000          # transcrição muito longa: começo e fim
 ESPERAS = (5, 15, 45, 90, 180)  # s entre tentativas quando o Gemini está sobrecarregado (429/5xx)
@@ -67,6 +68,11 @@ SCHEMA = {
 }
 
 _QUEM = {"Origem": "o cliente", "Destino": "o atendente", "Transferida": "transferida para outro atendente"}
+
+
+def definir_chave(chave):
+    global CHAVE
+    CHAVE = chave or CHAVE
 
 
 def configurado():

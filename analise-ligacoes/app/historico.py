@@ -42,7 +42,7 @@ def estado():
 def avancar():
     """Garante o processo rodando. Devolve o que está acontecendo (não bloqueia)."""
     if not ia.configurado():
-        return {"status": "erro", "erro": "GEMINI_API_KEY não configurada na stack"}
+        return {"status": "erro", "erro": "sem a chave do Gemini: o nó do n8n precisa usar a credencial do Gemini"}
     with _lock:
         if _estado["rodando"]:
             return {"status": "rodando", "dia": _estado["dia"]}
