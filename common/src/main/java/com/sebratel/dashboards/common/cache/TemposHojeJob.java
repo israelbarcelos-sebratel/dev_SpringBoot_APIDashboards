@@ -145,8 +145,9 @@ public class TemposHojeJob {
      * Today's calls of the given atendente names, newest first, for the per-call table: the configured
      * {@code app.widget.detalhe} columns plus each metric in seconds as computed by the same expression
      * the averages use (null when missing or negative — those rows don't count in the average), and
-     * the TMEA gap before the call. Read straight from the source on demand (someone opened the
-     * table), capped at {@code app.widget.detalhe-limite} rows.
+     * the TMEA gap before the call, plus the customer's survey score ({@code csat}, 1–5) where
+     * {@code app.widget.csat} links scores to calls. Read straight from the source on demand (someone
+     * opened the table), capped at {@code app.widget.detalhe-limite} rows.
      */
     public List<Map<String, Object>> detalheHoje(List<String> nomes) {
         Domain d = props.domain(DOMINIO);
@@ -171,6 +172,10 @@ public class TemposHojeJob {
             // gaps match the TMEA average even when the table is truncated.
             sql.append(", ").append(intervaloValido("(" + intervaloBruto(atendenteCol) + ")")).append(" AS tmea");
         }
+        String notaSql = widget.getCsat().notaDoAtendimentoSql(d.getTabela());
+        if (notaSql != null) {
+            sql.append(", ").append(notaSql).append(" AS csat");
+        }
         sql.append(" FROM `").append(d.getTabela()).append("` WHERE ").append(janelaHoje(dataCol))
            .append(" AND `").append(atendenteCol).append("` IN (")
            .append(String.join(",", Collections.nCopies(nomes.size(), "?"))).append(")")
@@ -193,6 +198,10 @@ public class TemposHojeJob {
                 tempos.put(TMEA, rs.wasNull() ? null : v);
             }
             linha.put("tempos", tempos);
+            if (notaSql != null) {
+                double v = rs.getDouble("csat");
+                linha.put("csat", rs.wasNull() ? null : v);
+            }
             linhas.add(linha);
         }, nomes.toArray());
         return linhas;

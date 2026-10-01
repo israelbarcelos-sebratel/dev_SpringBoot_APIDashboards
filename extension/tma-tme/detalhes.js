@@ -43,6 +43,12 @@ function nivel(m, seg, porLinha = false) {
   return "";
 }
 
+/** Nota do CSAT: inteira como veio ("4"), média com uma casa ("4,3"). */
+function fmtNota(v) {
+  if (v === null || v === undefined) return "—";
+  return v.toLocaleString("pt-BR", { minimumFractionDigits: Number.isInteger(v) ? 0 : 1, maximumFractionDigits: 1 });
+}
+
 function grupoReferencia(ref) {
   return ref.setor ? `setor ${ref.setor}` : "operação";
 }
@@ -74,11 +80,14 @@ function colunasDaTabela(dados) {
     const rotulo = ROTULOS_COLUNA[m.chave] || ROTULOS[m.chave] || m.chave.toUpperCase();
     cols.push({ chave: m.chave, rotulo, tipo: "metrica", metrica: m });
   }
+  // CSAT só vem de quem tem a pesquisa configurada (Matrix): nota do cliente para cada atendimento.
+  if (dados.csat) cols.push({ chave: "csat", rotulo: "CSAT", tipo: "nota" });
   return cols;
 }
 
 function valorOrdenacao(linha, col) {
   if (col.tipo === "metrica") return linha.tempos[col.chave] ?? -1;
+  if (col.tipo === "nota") return linha.csat ?? -1;
   return linha[col.chave] ?? "";
 }
 
@@ -134,7 +143,29 @@ function renderKpis(dados) {
       )
     );
   }
+  if (dados.csat) box.append(kpiCsat(dados.csat));
   return box;
+}
+
+/** % de avaliações com nota de satisfeito: "82% satisfeitos (nota 4 ou mais)". */
+function satisfeitos(n, minimo) {
+  return `${Math.round((100 * n.satisfeitos) / n.amostras)}% satisfeitos (nota ${minimo} ou mais)`;
+}
+
+/** Card do CSAT: média das avaliações respondidas hoje (a mesma do widget) + últimos dias. */
+function kpiCsat(c) {
+  const h = c.hoje;
+  const p = c.periodo;
+  const partes = [h ? `${h.amostras} avaliação(ões) hoje · ${satisfeitos(h, c.satisfeitoMinimo)}` : "Nenhuma avaliação hoje"];
+  partes.push(p ? `últimos ${c.dias} dias: ${fmtNota(p.media)} (${p.amostras} avaliação(ões))` : `sem avaliações nos últimos ${c.dias} dias`);
+  return el(
+    "div",
+    { class: "kpi" },
+    el("div", { class: "kpi-label", text: "CSAT · média de hoje" }),
+    el("div", { class: `kpi-value${h ? "" : " empty"}`, text: h ? fmtNota(h.media) : "—" }),
+    el("div", { class: "kpi-formula", text: c.formula || "" }),
+    el("div", { class: "kpi-n", text: partes.join(" · ") })
+  );
 }
 
 /** Valor com "▲" e quanto passou quando excede o limite: "▲ 6:12 (+1:12)". */
@@ -197,6 +228,11 @@ function renderTabela(sis) {
           td.title = `Acima do limite de ${fmt(c.metrica.meta)} (+${fmt(v - c.metrica.meta)})`;
         }
         tr.append(td);
+      } else if (c.tipo === "nota") {
+        const v = l.csat;
+        const td = el("td", { class: `metric${v === null || v === undefined ? " empty" : ""}`, text: fmtNota(v) });
+        td.title = v === null || v === undefined ? "O cliente não respondeu a pesquisa de satisfação" : "Nota do cliente na pesquisa (1 a 5)";
+        tr.append(td);
       } else {
         const bruto = l[c.chave];
         const td = el("td", { class: c.chave === "cliente" ? "cliente" : "", text: valorColuna(bruto) });
@@ -210,6 +246,14 @@ function renderTabela(sis) {
   // Rodapé: média das linhas visíveis (com filtro, é a média do filtro; sem filtro, bate com o widget).
   const trFoot = el("tr");
   cols.forEach((c, i) => {
+    if (c.tipo === "nota") {
+      const notas = linhas.map((l) => l.csat).filter((v) => v !== null && v !== undefined);
+      const media = notas.length ? notas.reduce((a, b) => a + b, 0) / notas.length : null;
+      const td = el("td", { class: `metric${media === null ? " empty" : ""}`, text: media === null ? "—" : fmtNota(Math.round(media * 10) / 10) });
+      td.title = `${notas.length} atendimento(s) avaliado(s)`;
+      trFoot.append(td);
+      return;
+    }
     if (c.tipo !== "metrica") {
       trFoot.append(el("td", { text: i === 0 ? `Média (${linhas.length} linha(s))` : "" }));
       return;
@@ -257,6 +301,10 @@ function desenharSecao(sis) {
         "Tempos em minutos:segundos. “—” = o atendimento não tem esse tempo (ex.: ainda em andamento) e não entra na média. " +
         "TMA/TME: verde dentro do limite de produtividade, vermelho (▲) acima. " +
         "TMEA: tempo sem atendimento entre um e outro, comparado com a média dos colegas do setor nos últimos 30 dias (verde abaixo, âmbar acima). " +
+        (dados.csat
+          ? "CSAT: nota do cliente na pesquisa de satisfação sobre o atendente (1 a 5); “—” = não respondeu. " +
+            "O card mostra as avaliações respondidas hoje (como o widget), que podem incluir atendimentos de ontem. "
+          : "") +
         "Clique no título de uma coluna para ordenar.",
     })
   );
@@ -455,9 +503,9 @@ function exportarCsv() {
     if (!st?.dados?.linhas.length) continue;
     const cols = colunasDaTabela(st.dados);
     linhasCsv.push([s.titulo]);
-    linhasCsv.push(cols.map((c) => (c.tipo === "metrica" ? `${c.rotulo} (seg)` : c.rotulo)));
+    linhasCsv.push(cols.map((c) => (c.tipo === "metrica" ? `${c.rotulo} (seg)` : c.tipo === "nota" ? `${c.rotulo} (1 a 5)` : c.rotulo)));
     for (const l of linhasVisiveis(s.chave)) {
-      linhasCsv.push(cols.map((c) => (c.tipo === "metrica" ? l.tempos[c.chave] : l[c.chave])));
+      linhasCsv.push(cols.map((c) => (c.tipo === "metrica" ? l.tempos[c.chave] : c.tipo === "nota" ? fmtNota(l.csat).replace("—", "") : l[c.chave])));
     }
     linhasCsv.push([]);
   }

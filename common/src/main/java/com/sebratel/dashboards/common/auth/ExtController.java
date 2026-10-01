@@ -2,6 +2,7 @@ package com.sebratel.dashboards.common.auth;
 
 import com.sebratel.dashboards.common.auth.UsuarioRepository.Usuario;
 import com.sebratel.dashboards.common.cache.ClienteAlias;
+import com.sebratel.dashboards.common.cache.CsatJob;
 import com.sebratel.dashboards.common.cache.ReferenciaMensalJob;
 import com.sebratel.dashboards.common.cache.ResumoDiario;
 import com.sebratel.dashboards.common.cache.TemposAtendenteCache;
@@ -50,12 +51,13 @@ public class ExtController {
     private final ReferenciaMensalJob referencia;
     private final CorrespondenciaNomes correspondencia;
     private final ResumoDiario resumoDiario;
+    private final CsatJob csat;
 
     public ExtController(UsuarioRepository usuarios, SemanticService semantic,
                          TemposAtendenteCache temposCache, TableGroupProperties groupProperties,
                          TemposHojeJob temposHoje, SuporteService suporte, WidgetProperties widgetProperties,
                          ClienteAlias clienteAlias, ReferenciaMensalJob referencia,
-                         CorrespondenciaNomes correspondencia, ResumoDiario resumoDiario) {
+                         CorrespondenciaNomes correspondencia, ResumoDiario resumoDiario, CsatJob csat) {
         this.usuarios = usuarios;
         this.semantic = semantic;
         this.temposCache = temposCache;
@@ -67,6 +69,7 @@ public class ExtController {
         this.referencia = referencia;
         this.correspondencia = correspondencia;
         this.resumoDiario = resumoDiario;
+        this.csat = csat;
     }
 
     @GetMapping("/ext/me")
@@ -115,7 +118,8 @@ public class ExtController {
      * fresh the ingested data is ({@code ultimoRegistro}). Metric keys come from
      * {@code app.widget.tempos} ("tma"/"tme" in both systems, plus "tmic"/"tmia" in matrix), plus
      * "tmea" with its sector reference ({@code tmeaReferencia}), each metric's limit ({@code metas})
-     * and the number of calls today and in the month so far ({@code atendimentos}). Same
+     * the number of calls today and in the month so far ({@code atendimentos}) and, where the survey
+     * is configured ({@code app.widget.csat}, matrix only), the satisfaction score ({@code csat}). Same
      * visibility rule for everyone: a common user only gets their own atendente (403 otherwise — the
      * extension can't bypass this by editing its storage); an admin may ask for anyone.
      */
@@ -135,6 +139,9 @@ public class ExtController {
         resp.put("metas", metas());
         resp.put("tmeaReferencia", referencia.tmeaSetor(nomes));
         resp.put("atendimentos", atendimentos(hoje, nomes));
+        if (csat.configurado()) {
+            resp.put("csat", csat.resumo(nomes));
+        }
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hoje.calculadoEm());
         return resp;
@@ -165,7 +172,8 @@ public class ExtController {
      * The per-call table behind the widget's numbers ("como o meu TMA foi formado"): today's calls of
      * the same atendente(s) {@link #widget} resolves — same visibility rule — with the configured
      * columns and each metric per call, plus every metric's formula and today's average, so the table
-     * adds up to what the widget shows.
+     * adds up to what the widget shows — and, where configured, each call's survey score and the CSAT
+     * summary ({@code csat}).
      */
     @GetMapping("/ext/widget/detalhe")
     public Map<String, Object> detalhe(@RequestAttribute(ExtAuthInterceptor.EMAIL_ATTR) String email,
@@ -211,6 +219,9 @@ public class ExtController {
         resp.put("nomes", nomes);
         resp.put("metricas", metricas);
         resp.put("atendimentos", atendimentos(hoje, nomes));
+        if (csat.configurado()) {
+            resp.put("csat", csat.resumo(nomes));
+        }
         resp.put("colunas", colunas);
         resp.put("linhas", linhas);
         resp.put("truncado", linhas.size() >= widgetProperties.getDetalheLimite());

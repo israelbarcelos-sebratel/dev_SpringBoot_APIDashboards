@@ -107,6 +107,10 @@
             <span class="metric-label">TMEA<span class="metric-sub" id="sebratel-matrix-tmea-ref"></span></span>
             <span class="metric-value" id="sebratel-matrix-tmea">--:--</span>
           </div>
+          <div class="metric-row" id="sebratel-matrix-csat-row" hidden>
+            <span class="metric-label">CSAT<span class="metric-sub" id="sebratel-matrix-csat-ref"></span></span>
+            <span class="metric-value" id="sebratel-matrix-csat">--</span>
+          </div>
           <div class="count-row" id="sebratel-matrix-count"></div>
           <div class="section-error" id="sebratel-matrix-error" hidden></div>
         </div>
@@ -358,6 +362,43 @@
       `(${dif <= 0 ? "você está " + fmt(-dif) + " abaixo" : "você está " + fmt(dif) + " acima"})`;
   }
 
+  /** Nota média com uma casa: 4.2857 -> "4,3". */
+  function fmtNota(v) {
+    return v.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+
+  /**
+   * CSAT = { hoje, periodo, dias, satisfeitoMinimo } (hoje/periodo = { media, amostras, satisfeitos }
+   * ou null sem avaliação). undefined = o servidor não tem pesquisa configurada: a linha some.
+   * Sem cor: não há meta de satisfação definida — a referência é a própria média dos últimos dias.
+   */
+  function setCsat(el, sis, c) {
+    const row = el.querySelector(`#sebratel-${sis}-csat-row`);
+    if (!row) return;
+    row.hidden = c === undefined;
+    const node = el.querySelector(`#sebratel-${sis}-csat`);
+    const refEl = el.querySelector(`#sebratel-${sis}-csat-ref`);
+    const p = c?.periodo;
+    refEl.textContent = p ? ` ${c.dias}d ${fmtNota(p.media)}` : "";
+    const pct = (n) => `${Math.round((100 * n.satisfeitos) / n.amostras)}% satisfeitos (nota ${c.satisfeitoMinimo} ou mais)`;
+    const linhaPeriodo = !c
+      ? ""
+      : p
+        ? `\nÚltimos ${c.dias} dias: ${fmtNota(p.media)} · ${p.amostras} avaliação(ões) · ${pct(p)}`
+        : `\nSem avaliações nos últimos ${c.dias} dias`;
+    const h = c?.hoje;
+    if (!h) {
+      node.textContent = "--";
+      node.className = "metric-value empty";
+      node.title = "Satisfação do cliente (pesquisa, nota de 1 a 5): nenhuma avaliação hoje" + linhaPeriodo;
+      return;
+    }
+    node.textContent = fmtNota(h.media);
+    node.className = "metric-value";
+    node.title =
+      `Satisfação do cliente hoje (pesquisa, nota de 1 a 5) · ${h.amostras} avaliação(ões) · ${pct(h)}` + linhaPeriodo;
+  }
+
   /** "Atendimentos: 23 hoje · 412 no mês". */
   function setCount(el, sis, a) {
     const node = el.querySelector(`#sebratel-${sis}-count`);
@@ -417,6 +458,7 @@
       setMetric(el, "#sebratel-matrix-tmic", data.matrix.tmic);
       setMetric(el, "#sebratel-matrix-tmia", data.matrix.tmia);
       setTmea(el, "matrix", data.matrix.tmea);
+      setCsat(el, "matrix", data.matrix.csat);
       setCount(el, "matrix", data.matrix.atendimentos);
     } else {
       matrixErrorEl.hidden = false;
@@ -427,6 +469,7 @@
       setMetric(el, "#sebratel-matrix-tmic", null);
       setMetric(el, "#sebratel-matrix-tmia", null);
       setTmea(el, "matrix", null);
+      setCsat(el, "matrix", null);
       setCount(el, "matrix", null);
     }
 
@@ -563,7 +606,7 @@
         agent: "carregando…",
         updatedAt: new Date().toISOString(),
         native: { available: true },
-        matrix: { available: true },
+        matrix: { available: true, csat: null },
       });
       refresh(el).catch(() => {});
       if (timer) {
