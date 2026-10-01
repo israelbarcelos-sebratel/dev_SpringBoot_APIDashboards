@@ -108,8 +108,8 @@ services:
   # (n8n/analise-ligacoes.json), pela rede do n8n: http://analise-ligacoes:8000. Sem porta publicada.
   # Opcionais na stack: ANALISE_TOKEN (exige o header X-Token), ANALISE_WORKERS/THREADS/MODELO, ANALISE_RETENCAO_DIAS.
   # Histórico (n8n/historico-conversas.json): todas as ligações, transcrição completa + IA, um dia por vez.
-  #   GEMINI_API_KEY é obrigatória para o histórico (digite na aba Environment variables da stack; NÃO comite).
-  #   Só o TEXTO mascarado vai para o Gemini; o áudio é apagado logo depois de transcrito, nada de áudio fica guardado.
+  #   A chave do Gemini fica só no n8n (credencial usada pelo nó do histórico); o container a recebe a cada chamada e
+  #   guarda só em memória. Só o TEXTO mascarado vai para o Gemini; nada de áudio fica guardado.
   analise-ligacoes:
     build:
       context: ./analise-ligacoes
@@ -130,7 +130,6 @@ services:
       THREADS: "${ANALISE_THREADS:-6}"
       MODELO: "${ANALISE_MODELO:-medium}"
       RETENCAO_DIAS: "${ANALISE_RETENCAO_DIAS:-90}"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_MODELO: "${GEMINI_MODELO:-gemini-3.8-flash}"
       MODELO_HISTORICO: "${HISTORICO_MODELO:-small}"     # small: ~2x mais rápido que o medium, qualidade parecida
       THREADS_HISTORICO: "${HISTORICO_THREADS:-6}"

@@ -23,7 +23,7 @@ import threading
 from decimal import Decimal
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -101,9 +101,7 @@ def _startup():
             log.info("retomando %s", r["data"])
             pipeline.iniciar(str(r["data"]))
             break
-        # Histórico: se estava no meio de um dia, continua (o n8n também chama /historico/avancar).
-        if ia.configurado() and _consulta("SELECT 1 FROM conversa_dia WHERE status=1 LIMIT 1"):
-            log.info("retomando o histórico: %s", historico.avancar())
+        # Histórico: a chave do Gemini só chega na próxima chamada do n8n (até 15 min) e aí ele continua.
     threading.Thread(target=preparar, daemon=True).start()
 
 
@@ -328,7 +326,9 @@ def _andamento_historico():
 
 
 @app.post("/historico/avancar", dependencies=[Depends(_token)])
-def historico_avancar():
+def historico_avancar(request: Request):
+    # A credencial do Gemini do n8n manda a chave (query "key" ou header "x-goog-api-key"); fica só em memória.
+    ia.definir_chave(request.query_params.get("key") or request.headers.get("x-goog-api-key"))
     r = historico.avancar()
     return {**r, "andamento": _andamento_historico()}
 
