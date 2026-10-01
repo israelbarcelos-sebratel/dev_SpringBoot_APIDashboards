@@ -107,6 +107,9 @@ services:
   # LOCAL (o áudio não sai do servidor), aplica as regras e grava no app-db. Quem dispara é o workflow do n8n
   # (n8n/analise-ligacoes.json), pela rede do n8n: http://analise-ligacoes:8000. Sem porta publicada.
   # Opcionais na stack: ANALISE_TOKEN (exige o header X-Token), ANALISE_WORKERS/THREADS/MODELO, ANALISE_RETENCAO_DIAS.
+  # Histórico (n8n/historico-conversas.json): todas as ligações, transcrição completa + IA, um dia por vez.
+  #   GEMINI_API_KEY é obrigatória para o histórico (digite na aba Environment variables da stack; NÃO comite).
+  #   Só o TEXTO mascarado vai para o Gemini; o áudio é apagado logo depois de transcrito, nada de áudio fica guardado.
   analise-ligacoes:
     build:
       context: ./analise-ligacoes
@@ -127,11 +130,20 @@ services:
       THREADS: "${ANALISE_THREADS:-6}"
       MODELO: "${ANALISE_MODELO:-medium}"
       RETENCAO_DIAS: "${ANALISE_RETENCAO_DIAS:-90}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GEMINI_MODELO: "${GEMINI_MODELO:-gemini-3.8-flash}"
+      MODELO_HISTORICO: "${HISTORICO_MODELO:-small}"     # small: ~2x mais rápido que o medium, qualidade parecida
+      THREADS_HISTORICO: "${HISTORICO_THREADS:-6}"
+      HISTORICO_DESDE: "${HISTORICO_DESDE:-}"            # vazio = desde o 1º dia do db_native (dias sem gravação são pulados)
+      IA_PARALELO: "${HISTORICO_IA_PARALELO:-4}"
     volumes:
       - whisper-modelos:/modelos   # modelo do Whisper (~1,5 GB, baixado no primeiro uso)
     # O servidor é dividido com as APIs e outros ~45 containers: o n8n roda de madrugada e isto fica limitado.
     cpus: 6
     mem_limit: 6g
+    # Prioridade menor que a das APIs (padrão 1024): com o histórico rodando o dia todo, native-api e matrix-api
+    # sempre ganham a CPU quando precisam.
+    cpu_shares: 256
     networks:
       - default
       - n8n

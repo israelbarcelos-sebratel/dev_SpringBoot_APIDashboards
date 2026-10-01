@@ -37,11 +37,24 @@ ALUCINA = re.compile(r"amara\.org|legendas|obrigad[oa] por assistir|inscreva-se|
 
 # LGPD: nada de CPF, telefone, e-mail ou sequência longa de números no texto guardado / enviado à IA.
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]+\b")
-_NUMEROS = re.compile(r"\b(?:\d[\s.\-/]?){5,}\d\b")
+# Dígitos ditados um a um ("9, 9, 7, 8...", "018-938-41073", "51 9 8417 4915"): 6+ dígitos com qualquer mistura
+# de espaço, vírgula, ponto, hífen ou barra entre eles.
+_NUMEROS = re.compile(r"\b(?:\d[\s.,;\-/]{0,3}){5,}\d\b")
 
 
 def mascarar(texto):
     return _NUMEROS.sub("[número]", _EMAIL.sub("[e-mail]", texto))
+
+
+def mascarar_obj(o):
+    """Máscara em todos os textos de uma estrutura (JSON decodificado); números e chaves ficam como estão."""
+    if isinstance(o, str):
+        return mascarar(o)
+    if isinstance(o, list):
+        return [mascarar_obj(x) for x in o]
+    if isinstance(o, dict):
+        return {k: mascarar_obj(v) for k, v in o.items()}
+    return o
 
 
 def norm(s):
