@@ -34,7 +34,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Dia analisado: ontem (fuso de Brasília). Para reprocessar outro dia, troque `data` por 'AAAA-MM-DD'.\nconst data = $now.setZone('America/Sao_Paulo').minus({ days: 1 }).toFormat('yyyy-MM-dd');\nreturn [{ json: {\n  data,\n  // Container da stack \"dashboards\", na rede do n8n (sem porta publicada).\n  base: 'http://analise-ligacoes:8000',\n  // Só se ANALISE_TOKEN estiver definido na stack; vazio = sem token.\n  token: '',\n  // Modelo do Gemini usado no entendimento.\n  modeloGemini: 'gemini-2.5-flash',\n} }];"
+        "jsCode": "// Dia analisado: ontem (fuso de Brasília).\n// Para reprocessar outro dia (ou só reavaliar as suspeitas com a IA), preencha REPROCESSAR com 'AAAA-MM-DD',\n// execute manualmente e volte a deixar vazio.\nconst REPROCESSAR = '';\nconst data = REPROCESSAR || $now.setZone('America/Sao_Paulo').minus({ days: 1 }).toFormat('yyyy-MM-dd');\nreturn [{ json: {\n  data,\n  // Container da stack \"dashboards\", na rede do n8n (sem porta publicada).\n  base: 'http://analise-ligacoes:8000',\n  // Só se ANALISE_TOKEN estiver definido na stack; vazio = sem token.\n  token: '',\n  // Modelo do Gemini usado no entendimento (o 2.5-flash foi descontinuado para chaves novas em 10/2026).\n  modeloGemini: 'gemini-3.8-flash',\n} }];"
       },
       "id": "a1f0c001-0000-4000-8000-000000000003",
       "name": "Configuração",
@@ -284,7 +284,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Junta a resposta de cada ligação com o protocolo (mesma ordem da entrada do Gemini).\nconst suspeitas = $('Tem suspeitas?').all();\nconst itens = $input.all().map((it, i) => {\n  const protocolo = suspeitas[i].json.protocolo;\n  if (it.json.error || !it.json.candidates) {\n    return { protocolo, erro: JSON.stringify(it.json.error || it.json).slice(0, 300) };\n  }\n  return { protocolo, resposta: it.json };\n});\nreturn [{ json: { itens } }];"
+        "jsCode": "// Junta a resposta de cada ligação com o protocolo (item correspondente da entrada do Gemini; vale em cada rodada).\nconst itens = $input.all().map((it, i) => {\n  const protocolo = $('Tem suspeitas?').itemMatching(i).json.protocolo;\n  if (it.json.error || !it.json.candidates) {\n    return { protocolo, erro: JSON.stringify(it.json.error || it.json).slice(0, 300) };\n  }\n  return { protocolo, resposta: it.json };\n});\nreturn [{ json: { itens } }];"
       },
       "id": "a1f0c001-0000-4000-8000-000000000013",
       "name": "Montar avaliações",
@@ -341,7 +341,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2640,
+        3360,
         -60
       ],
       "executeOnce": true
@@ -423,6 +423,98 @@
         1920,
         180
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c0000006-0000-4000-8000-000000000001",
+              "leftValue": "={{ ($json.falhas || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000019",
+      "name": "Faltou avaliar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rodada extra da IA para as que falharam (ex.: Gemini sobrecarregado). $runIndex conta as rodadas.\nreturn [{ json: { ...$json, rodada: $runIndex + 1 } }];"
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000020",
+      "name": "Contar rodada da IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "c0000007-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.rodada }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000021",
+      "name": "IA de novo? (até 3x)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        -360
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "minutes"
+      },
+      "id": "a1f0c001-0000-4000-8000-000000000022",
+      "name": "Aguardar 2 min (IA)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3360,
+        -460
+      ],
+      "webhookId": "a1f0c001-0000-4000-8000-0000000000bb"
     }
   ],
   "connections": {
@@ -565,7 +657,7 @@
       "main": [
         [
           {
-            "node": "Resumo do dia",
+            "node": "Faltou avaliar?",
             "type": "main",
             "index": 0
           }
@@ -631,6 +723,64 @@
         [
           {
             "node": "Falhou",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Faltou avaliar?": {
+      "main": [
+        [
+          {
+            "node": "Contar rodada da IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resumo do dia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contar rodada da IA": {
+      "main": [
+        [
+          {
+            "node": "IA de novo? (até 3x)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA de novo? (até 3x)": {
+      "main": [
+        [
+          {
+            "node": "Aguardar 2 min (IA)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resumo do dia",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aguardar 2 min (IA)": {
+      "main": [
+        [
+          {
+            "node": "Ligações suspeitas",
             "type": "main",
             "index": 0
           }
