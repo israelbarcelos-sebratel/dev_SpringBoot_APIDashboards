@@ -84,6 +84,22 @@ app:
         agente: agente
         inicio: data_login
         fim: data_logout
+    # CSAT (satisfação) do widget: média da nota 1–5 da pesquisa respondida pelo cliente, hoje e nos
+    # últimos `dias`. nom_agente tem a mesma grafia de db_matrix.atendente. A pesquisa tem duas
+    # perguntas (atendente e resolução do problema); só a do atendente mede o atendente. Tire o filtro
+    # para fazer a média das duas. Só na Matrix: na Native os dados da pesquisa não estão corretos.
+    csat:
+      tabela: db_matrix_avaliations
+      agente: nom_agente
+      data: dat_resposta
+      nota: nom_valor
+      filtro: "`nom_pergunta` LIKE '%atendimento da pessoa%'"
+      formula: Média das notas (1 a 5) da pesquisa sobre o atendente
+      satisfeito-minimo: 4
+      dias: 30
+      # Nota de cada atendimento na tabela de detalhes: cod_atendimento = db_matrix.codigo.
+      atendimento: cod_atendimento
+      atendimento-chamada: codigo
     # Aba "Pausas e comportamentos". A Matrix não tem tempo previsto por pausa e grava
     # "0000-00-00 00:00:00" quando o fim da pausa não foi registrado.
     comportamento:

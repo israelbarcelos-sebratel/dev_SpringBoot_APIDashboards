@@ -118,6 +118,8 @@ const SebratelApi = {
       // TMEA: comparado com a média dos outros atendentes do mesmo setor (últimos 30 dias).
       out.tmea = { ...metrica(v, "tmea"), referencia: v.tmeaReferencia || null };
       out.atendimentos = v.atendimentos || { hoje: 0, mes: null };
+      // CSAT (satisfação): só vem de quem tem a pesquisa configurada (Matrix); ausente = não exibir.
+      if (v.csat !== undefined) out.csat = v.csat;
       return out;
     };
 

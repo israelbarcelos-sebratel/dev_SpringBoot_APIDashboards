@@ -38,6 +38,7 @@ public class WidgetProperties {
     private List<Coluna> detalhe = new ArrayList<>();
     private int detalheLimite = 2000;
     private Tmea tmea = new Tmea();
+    private Csat csat = new Csat();
 
     public String getDataColuna() {
         return dataColuna;
@@ -79,6 +80,14 @@ public class WidgetProperties {
 
     public void setTmea(Tmea tmea) {
         this.tmea = tmea;
+    }
+
+    public Csat getCsat() {
+        return csat;
+    }
+
+    public void setCsat(Csat csat) {
+        this.csat = csat;
     }
 
     public int getDetalheLimite() {
@@ -272,6 +281,137 @@ public class WidgetProperties {
 
         public void setDiasReferencia(int diasReferencia) {
             this.diasReferencia = diasReferencia;
+        }
+    }
+
+    /**
+     * CSAT — the customer-satisfaction survey score of the atendente's calls, from its own table (one
+     * row per answered question): {@code agente} with the same names as the calls, {@code data} the
+     * DATETIME of the answer (defines "hoje"), {@code nota} the 1–5 score and an optional extra WHERE
+     * condition ({@code filtro}, e.g. only the question about the atendente). {@code satisfeitoMinimo}
+     * is the lowest score counted as "satisfeito" (the % shown next to the average). The widget shows
+     * today's average and the atendente's own average over the last {@code dias} days. In the per-call
+     * table each call gets its own score: {@code atendimento} (survey table) = {@code atendimentoChamada}
+     * (calls table).
+     */
+    public static class Csat {
+        private String tabela;
+        private String agente;
+        private String data;
+        private String nota;
+        private String filtro;
+        private String formula;
+        private int satisfeitoMinimo = 4;
+        private int dias = 30;
+        private String atendimento;
+        private String atendimentoChamada;
+
+        public boolean configurado() {
+            return tabela != null && !tabela.isBlank() && agente != null && data != null && nota != null;
+        }
+
+        /** SQL for the score (1–5) of the scores' table rows only — out-of-range values don't count. */
+        public String notaSql(String prefixo) {
+            return "CAST(" + prefixo + "`" + nota + "` AS UNSIGNED)";
+        }
+
+        /** Extra WHERE condition ({@code filtro}) with a leading AND, or empty. */
+        public String filtroSql() {
+            return filtro == null || filtro.isBlank() ? "" : " AND (" + filtro + ")";
+        }
+
+        /**
+         * Scalar subquery: the score of the call on the current row of {@code tabelaChamadas}, null when
+         * the customer didn't answer (average if the filter lets more than one question in). Null when
+         * the per-call link isn't configured.
+         */
+        public String notaDoAtendimentoSql(String tabelaChamadas) {
+            if (!configurado() || atendimento == null || atendimentoChamada == null) {
+                return null;
+            }
+            return "(SELECT AVG(" + notaSql("av.") + ") FROM `" + tabela + "` av WHERE av.`" + atendimento
+                    + "` = `" + tabelaChamadas + "`.`" + atendimentoChamada + "` AND " + notaSql("av.")
+                    + " BETWEEN 1 AND 5" + filtroSql() + ")";
+        }
+
+        public String getAtendimento() {
+            return atendimento;
+        }
+
+        public void setAtendimento(String atendimento) {
+            this.atendimento = atendimento;
+        }
+
+        public String getAtendimentoChamada() {
+            return atendimentoChamada;
+        }
+
+        public void setAtendimentoChamada(String atendimentoChamada) {
+            this.atendimentoChamada = atendimentoChamada;
+        }
+
+        public String getTabela() {
+            return tabela;
+        }
+
+        public void setTabela(String tabela) {
+            this.tabela = tabela;
+        }
+
+        public String getAgente() {
+            return agente;
+        }
+
+        public void setAgente(String agente) {
+            this.agente = agente;
+        }
+
+        public String getData() {
+            return data;
+        }
+
+        public void setData(String data) {
+            this.data = data;
+        }
+
+        public String getNota() {
+            return nota;
+        }
+
+        public void setNota(String nota) {
+            this.nota = nota;
+        }
+
+        public String getFiltro() {
+            return filtro;
+        }
+
+        public void setFiltro(String filtro) {
+            this.filtro = filtro;
+        }
+
+        public String getFormula() {
+            return formula;
+        }
+
+        public void setFormula(String formula) {
+            this.formula = formula;
+        }
+
+        public int getSatisfeitoMinimo() {
+            return satisfeitoMinimo;
+        }
+
+        public void setSatisfeitoMinimo(int satisfeitoMinimo) {
+            this.satisfeitoMinimo = satisfeitoMinimo;
+        }
+
+        public int getDias() {
+            return dias;
+        }
+
+        public void setDias(int dias) {
+            this.dias = dias;
         }
     }
 
