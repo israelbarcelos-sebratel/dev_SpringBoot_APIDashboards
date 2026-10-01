@@ -54,6 +54,76 @@ SCHEMA = [
         KEY ix_status (data, status),
         KEY ix_suspeita (data, suspeita)
     ) DEFAULT CHARSET=utf8mb4""",
+    # Histórico: todas as ligações atendidas, transcrição completa e análise da IA (sem guardar áudio).
+    """CREATE TABLE IF NOT EXISTS conversa_dia (
+        data DATE NOT NULL PRIMARY KEY,
+        status TINYINT NOT NULL DEFAULT 0,      -- 0 = ainda não feito, 1 = trabalhando, 2 = pronto
+        etapa VARCHAR(20) NULL,                 -- transcrevendo | ia | pronto | indisponivel
+        total INT NOT NULL DEFAULT 0,
+        transcritas INT NOT NULL DEFAULT 0,
+        analisadas INT NOT NULL DEFAULT 0,
+        erros INT NOT NULL DEFAULT 0,
+        iniciada DATETIME NULL,
+        terminada DATETIME NULL,
+        observacao TEXT NULL
+    ) DEFAULT CHARSET=utf8mb4""",
+    """CREATE TABLE IF NOT EXISTS conversa_ligacao (
+        protocolo VARCHAR(50) NOT NULL PRIMARY KEY,
+        data DATE NOT NULL,
+        data_hora DATETIME NOT NULL,
+        agente VARCHAR(255) NULL,
+        fila VARCHAR(100) NULL,
+        sentido VARCHAR(50) NULL,
+        desconexao VARCHAR(50) NULL,           -- Origem = cliente desligou, Destino = atendente, Transferida
+        espera_seg INT NULL,
+        atendimento_seg INT NULL,
+        cidade VARCHAR(255) NULL,
+        religou_min INT NULL,                   -- cliente ligou de novo N min depois do fim desta
+        gravacao TEXT NULL,
+        status TINYINT NOT NULL DEFAULT 0,      -- 0 = ainda não feito, 1 = trabalhando, 2 = pronto
+        etapa VARCHAR(20) NULL,                 -- baixando | transcrevendo | transcrita | ia | pronto
+        erro TEXT NULL,
+        inicio DATETIME NULL,
+        fim DATETIME NULL,
+        -- áudio (só números; o arquivo é apagado logo depois de transcrito)
+        duracao_audio DOUBLE NULL,
+        fala_seg DOUBLE NULL,
+        silencio_pct DOUBLE NULL,
+        inicio_fala DOUBLE NULL,
+        maior_silencio DOUBLE NULL,
+        buracos TEXT NULL,                      -- JSON [[ini, fim], ...] sem fala
+        transcricao MEDIUMTEXT NULL,            -- JSON [{ini, fim, texto}], inteira e mascarada
+        palavras INT NULL,
+        modelo_stt VARCHAR(40) NULL,
+        -- regras (mesmas da análise diária)
+        marcas TEXT NULL,
+        peso INT NULL,
+        cadeia TEXT NULL,
+        -- IA
+        resumo TEXT NULL,
+        motivo VARCHAR(255) NULL,
+        categoria VARCHAR(40) NULL,
+        resolvido VARCHAR(20) NULL,             -- sim | nao | parcial | encaminhado | indefinido
+        sentimento_inicio VARCHAR(20) NULL,
+        sentimento_fim VARCHAR(20) NULL,
+        satisfacao_estimada TINYINT NULL,       -- 1 a 5
+        risco_cancelamento TINYINT NULL,
+        ligacao_interna TINYINT NULL,
+        regra_mudo VARCHAR(20) NULL,            -- sim | nao | inconclusivo
+        regra_mudo_justificativa TEXT NULL,
+        roteiro TEXT NULL,                      -- JSON {saudacao, identificou_cliente, informou_protocolo, ...}
+        pontos_atencao TEXT NULL,
+        palavras_chave TEXT NULL,               -- JSON
+        ia_confianca DOUBLE NULL,
+        ia_json MEDIUMTEXT NULL,
+        ia_modelo VARCHAR(60) NULL,
+        ia_em DATETIME NULL,
+        ia_erro TEXT NULL,
+        KEY ix_dia (data, status),
+        KEY ix_agente (agente, data),
+        KEY ix_categoria (categoria, data),
+        KEY ix_regra (regra_mudo, data)
+    ) DEFAULT CHARSET=utf8mb4""",
 ]
 
 

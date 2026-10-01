@@ -7,6 +7,12 @@ GET  /analises/{data}/suspeitas     ligações para a IA, cada uma com o geminiR
 POST /analises/{data}/avaliacoes    [{protocolo, resultado | resposta | erro}] parecer da IA
 GET  /analises/{data}/resumo        totais e casos (JSON)
 GET  /analises/{data}/relatorio     o mesmo em HTML
+
+Histórico (todas as ligações, transcrição completa + IA, um dia por vez do mais antigo ao mais novo):
+POST /historico/avancar             garante o processo rodando (o n8n chama de tempos em tempos)
+GET  /historico                     andamento: dias 0/1/2, dia atual, ritmo, previsão
+GET  /historico/dias                a tabela de dias (?status=0|1|2)
+POST /historico/reavaliar           volta para a IA as ligações em que ela falhou (?data=AAAA-MM-DD opcional)
 """
 import datetime as dt
 import html
@@ -21,7 +27,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from . import db, gemini, pipeline
+from . import db, gemini, historico, ia, pipeline, regras
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("analise")
@@ -60,21 +66,51 @@ def _linha(r):
     return out
 
 
+# Colunas com texto de conversa (JSON ou texto livre): a máscara é passada de novo a cada subida — barato e
+# idempotente, e cobre o que foi gravado antes de a máscara melhorar (ex.: CPF ditado com vírgulas, 01/10/2026).
+_COM_TEXTO = (
+    ("analise_ligacao", ("data", "protocolo"), ("segmentos", "trecho", "ia_json"), ("ia_justificativa", "ia_motivo")),
+    ("conversa_ligacao", ("protocolo",), ("transcricao", "ia_json", "palavras_chave"),
+     ("resumo", "motivo", "regra_mudo_justificativa", "pontos_atencao")),
+)
+
+
+def _remascarar():
+    alteradas = 0
+    with db.app() as c, c.cursor() as cur:
+        for tabela, chave, jsons, textos in _COM_TEXTO:
+            cur.execute(f"SELECT {', '.join(chave + jsons + textos)} FROM {tabela}")
+            for r in cur.fetchall():
+                novo = {k: json.dumps(regras.mascarar_obj(json.loads(r[k])), ensure_ascii=False) for k in jsons if r[k]}
+                novo.update({k: regras.mascarar(r[k]) for k in textos if r[k]})
+                mud = {k: v for k, v in novo.items() if v != r[k]}
+                if mud:
+                    cur.execute(f"UPDATE {tabela} SET {', '.join(f'{k}=%s' for k in mud)} WHERE "
+                                + " AND ".join(f"{k}=%s" for k in chave), [*mud.values(), *(r[k] for k in chave)])
+                    alteradas += 1
+    log.info("máscara revisada: %d linha(s) alterada(s)", alteradas)
+
+
 @app.on_event("startup")
 def _startup():
     def preparar():
         db.criar_schema()
+        _remascarar()
         # Container reiniciado no meio de um dia: continua de onde parou.
         for r in _consulta("SELECT data FROM analise_execucao WHERE status IN ('processando','analisando') ORDER BY data"):
             log.info("retomando %s", r["data"])
             pipeline.iniciar(str(r["data"]))
             break
+        # Histórico: se estava no meio de um dia, continua (o n8n também chama /historico/avancar).
+        if ia.configurado() and _consulta("SELECT 1 FROM conversa_dia WHERE status=1 LIMIT 1"):
+            log.info("retomando o histórico: %s", historico.avancar())
     threading.Thread(target=preparar, daemon=True).start()
 
 
 @app.get("/saude")
 def saude():
-    return {"ok": True, "rodando": pipeline.rodando(), "modelo": pipeline.MODELO, "workers": pipeline.WORKERS}
+    return {"ok": True, "rodando": pipeline.rodando(), "modelo": pipeline.MODELO, "workers": pipeline.WORKERS,
+            "historico": historico.estado(), "iaConfigurada": ia.configurado()}
 
 
 class Pedido(BaseModel):
@@ -181,7 +217,7 @@ def avaliacoes(data: str, itens: list[Avaliacao]):
             try:
                 if a.erro:
                     raise ValueError(a.erro)
-                r = a.resultado or gemini.ler_resposta(a.resposta)
+                r = regras.mascarar_obj(a.resultado or gemini.ler_resposta(a.resposta))
                 cur.execute("UPDATE analise_ligacao SET ia_enquadra=%s, ia_confianca=%s, ia_sentimento=%s, ia_motivo=%s,"
                             " ia_justificativa=%s, ia_json=%s, ia_em=NOW() WHERE data=%s AND protocolo=%s AND suspeita=1",
                             (r.get("enquadra"), r.get("confianca"), r.get("sentimento_cliente"),
@@ -257,3 +293,59 @@ table{{border-collapse:collapse;width:100%;background:#fff}}td,th{{border-bottom
 <h2>Por atendente</h2><table><tr><th>Atendente</th><th>Ligações</th><th>Suspeitas</th><th>IA: sim</th><th>IA: inconclusivo</th></tr>{linhas}</table>
 <h2>Casos</h2>{''.join(cards) or '<p>Nenhuma ligação suspeita.</p>'}
 </main></body></html>"""
+
+
+# ---------------------------------------------------------------- histórico
+def _andamento_historico():
+    dias = historico.dias_candidatos()
+    feitos = {str(r["data"]): r for r in _consulta("SELECT * FROM conversa_dia")}
+    cont = {"0_nao_feito": 0, "1_trabalhando": 0, "2_pronto": 0}
+    indisponiveis = 0
+    for d in dias:
+        r = feitos.get(d)
+        st = r["status"] if r else 0
+        cont[("0_nao_feito", "1_trabalhando", "2_pronto")[st]] += 1
+        if r and r["etapa"] == "indisponivel":
+            indisponiveis += 1
+    atual = next((r for r in feitos.values() if r["status"] == 1), None)
+    # Ritmo: ligações concluídas na última hora; previsão pelo tempo médio dos dias já processados de verdade.
+    ritmo = _consulta("SELECT COUNT(*) n FROM conversa_ligacao WHERE fim >= NOW() - INTERVAL 1 HOUR AND status=2")[0]["n"]
+    medio = _consulta("SELECT AVG(TIMESTAMPDIFF(SECOND, iniciada, terminada)) s, SUM(total) ligacoes, COUNT(*) n"
+                      " FROM conversa_dia WHERE status=2 AND etapa='pronto'")[0]
+    restantes = cont["0_nao_feito"] + cont["1_trabalhando"]
+    tot = _consulta("SELECT COUNT(*) n, SUM(ia_em IS NOT NULL) ia, SUM(erro IS NOT NULL) erro_stt,"
+                    " SUM(ia_erro IS NOT NULL) erro_ia FROM conversa_ligacao")[0]
+    return {
+        "estado": historico.estado(), "iaConfigurada": ia.configurado(), "modeloStt": historico.MODELO,
+        "modeloIa": ia.MODELO, "dias": {"total": len(dias), **cont, "indisponiveisNoNative": indisponiveis,
+                                        "primeiro": dias[0] if dias else None, "ultimo": dias[-1] if dias else None},
+        "diaAtual": {k: (str(v) if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in atual.items()} if atual else None,
+        "ligacoes": {"registradas": tot["n"], "comIa": int(tot["ia"] or 0), "errosTranscricao": int(tot["erro_stt"] or 0),
+                     "errosIa": int(tot["erro_ia"] or 0)},
+        "ritmoPorHora": ritmo,
+        "previsaoDias": round(restantes * float(medio["s"]) / 86400, 1) if medio["s"] and restantes else None,
+    }
+
+
+@app.post("/historico/avancar", dependencies=[Depends(_token)])
+def historico_avancar():
+    r = historico.avancar()
+    return {**r, "andamento": _andamento_historico()}
+
+
+@app.get("/historico", dependencies=[Depends(_token)])
+def historico_andamento():
+    return _andamento_historico()
+
+
+@app.get("/historico/dias", dependencies=[Depends(_token)])
+def historico_dias(status: Optional[int] = Query(default=None)):
+    sql = "SELECT * FROM conversa_dia" + (" WHERE status=%s" if status is not None else "") + " ORDER BY data"
+    return [{k: (str(v) if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
+            for r in _consulta(sql, (status,) if status is not None else ())]
+
+
+@app.post("/historico/reavaliar", dependencies=[Depends(_token)])
+def historico_reavaliar(data: Optional[str] = Query(default=None)):
+    historico.reavaliar(_data(data) if data else None)
+    return {"status": "reavaliando", "data": data}

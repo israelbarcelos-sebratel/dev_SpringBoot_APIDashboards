@@ -36,6 +36,10 @@ QUEDAS_MAX = 2   # a mesma ligação estava no worker em 2 quedas -> erro nela e
 
 _lock = threading.Lock()
 _rodando = {"data": None}
+# Um Whisper por vez no container (2 não cabem na memória). A análise diária tem prioridade: ela avisa em
+# DIARIO_QUER e o histórico solta a trava no fim do lote em que estiver.
+WHISPER = threading.Lock()
+DIARIO_QUER = threading.Event()
 
 def hms(v):
     """TIME do MariaDB chega como timedelta."""
@@ -55,8 +59,9 @@ def _iniciar_worker(modelo, threads):
     _modelo = WhisperModel(modelo, device="cpu", compute_type="int8", cpu_threads=threads)
 
 
-def transcrever(protocolo, caminho):
-    """VAD + Whisper de uma gravação; devolve só números e texto já mascarado."""
+def transcrever(protocolo, caminho, completa=False):
+    """VAD + Whisper de uma gravação; devolve só números e texto já mascarado. `completa`: a ligação inteira
+    (histórico, para o resumo); senão, nas longas, só o começo e o fim."""
     from faster_whisper import decode_audio
     from faster_whisper.vad import VadOptions, get_speech_timestamps
     r = {"protocolo": protocolo, "worker": f"w{os.getpid()}"}
@@ -74,7 +79,7 @@ def transcrever(protocolo, caminho):
         if dur - ultimo >= 3:
             buracos.append([round(ultimo, 1), round(dur, 1)])
         # Curta: inteira. Longa: só o começo e o fim (onde o mudo / "linha com problema" aparece).
-        partes = [(0.0, dur)] if dur <= CURTA else [(0.0, INICIO), (dur - FIM, dur)]
+        partes = [(0.0, dur)] if completa or dur <= CURTA else [(0.0, INICIO), (dur - FIM, dur)]
         segs = []
         for a, b in partes:
             it, _ = _modelo.transcribe(audio[int(a * SR):int(b * SR)], language="pt", vad_filter=True, beam_size=1,
@@ -142,28 +147,36 @@ def _executar(data, limite, reprocessar):
             _rodando["data"] = None
 
 
-def _carregar_lista(con, data, limite):
-    """Ligações do dia (db_native) -> analise_ligacao com status 0 (as que já existem ficam como estão)."""
+def listar_dia(data):
+    """Ligações atendidas do dia no db_native, com o link da gravação e se o cliente ligou de novo (próxima
+    chamada do mesmo número em até 2 h depois do fim desta). O número do cliente não sai daqui."""
     with db.origem() as org, org.cursor() as cur:
         cur.execute("SELECT protocolo, data_hora, agente, fila, TIME_TO_SEC(atendimento) seg, TIME_TO_SEC(espera) espera,"
-                    " desconexao, sentido, gravacao, numero, perdida FROM db_native"
+                    " desconexao, sentido, cidade_cliente, gravacao, numero, perdida FROM db_native"
                     " WHERE data_hora >= %s AND data_hora < %s + INTERVAL 1 DAY ORDER BY data_hora", (data, data))
         todas = cur.fetchall()
-    # Cliente ligou de novo: próxima chamada do mesmo número depois do fim desta (o número não é guardado).
     por_numero = {}
     for r in todas:
         if r["numero"]:
             por_numero.setdefault(r["numero"], []).append(r["data_hora"])
-    linhas = []
+    out = []
     for r in todas:
         if r["perdida"] is not None:
             continue
         href = HREF.search(r["gravacao"] or "")
         fim = r["data_hora"] + dt.timedelta(seconds=(r["seg"] or 0) + (r["espera"] or 0))
         prox = [t for t in por_numero.get(r["numero"], []) if fim < t <= fim + dt.timedelta(hours=2)]
-        religou = max(0, round((min(prox) - fim).total_seconds() / 60)) if prox else None
-        linhas.append((data, r["protocolo"], r["data_hora"].time(), r["agente"], r["fila"], r["seg"], r["desconexao"],
-                       r["sentido"], href.group(1) if href else None, religou))
+        out.append({"protocolo": r["protocolo"], "data_hora": r["data_hora"], "agente": r["agente"], "fila": r["fila"],
+                    "seg": r["seg"], "espera": r["espera"], "desconexao": r["desconexao"], "sentido": r["sentido"],
+                    "cidade": r["cidade_cliente"], "gravacao": href.group(1) if href else None,
+                    "religou": max(0, round((min(prox) - fim).total_seconds() / 60)) if prox else None})
+    return out
+
+
+def _carregar_lista(con, data, limite):
+    """Ligações do dia (db_native) -> analise_ligacao com status 0 (as que já existem ficam como estão)."""
+    linhas = [(data, r["protocolo"], r["data_hora"].time(), r["agente"], r["fila"], r["seg"], r["desconexao"],
+               r["sentido"], r["gravacao"], r["religou"]) for r in listar_dia(data)]
     if limite:
         linhas = linhas[:limite]
     with con.cursor() as cur:
@@ -176,12 +189,12 @@ def _carregar_lista(con, data, limite):
     log.info("%s: %d ligações atendidas", data, len(linhas))
 
 
-def _baixar(protocolo, url):
+def _baixar(protocolo, url, pasta=TMP):
     """O Native converte a gravação para .mp3 depois de um tempo, mas o link no banco continua .wav."""
     base, ext = os.path.splitext(url)
     tentativas = [url] + [base + e for e in (".mp3", ".wav") if e != ext]
     for n, u in enumerate(tentativas):
-        caminho = os.path.join(TMP, protocolo + os.path.splitext(u)[1])
+        caminho = os.path.join(pasta, protocolo + os.path.splitext(u)[1])
         try:
             urllib.request.urlretrieve(u, caminho)
             return caminho
@@ -215,7 +228,10 @@ def _transcrever_pendentes(con, data):
 
     while True:
         try:
-            _rodar_pool(data, pend, marcar)
+            DIARIO_QUER.set()  # o histórico solta o Whisper no fim do lote dele
+            with WHISPER:
+                DIARIO_QUER.clear()
+                _rodar_pool(data, pend, marcar)
             return
         except _PoolCaiu as q:
             # Pool novo; quem estava em andamento volta para a fila (status 0), menos a ligação que já

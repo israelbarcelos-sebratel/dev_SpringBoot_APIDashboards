@@ -99,6 +99,7 @@ services:
       WORKERS: "${ANALISE_WORKERS:-2}"
       THREADS: "${ANALISE_THREADS:-3}"
       MODELO: "${ANALISE_MODELO:-medium}"
+      MODELO_HISTORICO: "${HISTORICO_MODELO:-small}"
     volumes:
       - whisper-modelos:/modelos
     depends_on:
