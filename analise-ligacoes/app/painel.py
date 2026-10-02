@@ -89,8 +89,11 @@ def _tela(r, maquina, historico):
               f"   atualizado {agora:%d/%m %H:%M:%S} (a cada {INTERVALO // 60} min, Ctrl+C sai)", ""]
     ajud = est.get("gpu", {}).get("ajudantes", {})
     vivos = [f"{k} há {v}s" for k, v in ajud.items() if v < 180]
-    linhas.append(f"Servidor: {'dia ' + dt.date.fromisoformat(est['dia']).strftime('%d/%m') if est.get('dia') else 'parado'}"
-                  f" · {est.get('etapa') or ('rodando' if est.get('rodando') else 'parado')}"
+    if est.get("rodando") and est.get("dia"):
+        servidor = f"dia {dt.date.fromisoformat(est['dia']):%d/%m} · {est.get('etapa') or 'começando'}"
+    else:
+        servidor = "começando" if est.get("rodando") else f"{AMARELO}parado — o n8n retoma em até 15 min{FIM}"
+    linhas.append(f"Servidor: {servidor}"
                   f" · ajudante: {', '.join(vivos) if vivos else VERMELHO + 'nenhum ativo' + FIM}"
                   + (f" · {VERMELHO}erro: {est['erro']}{FIM}" if est.get("erro") else ""))
     linhas.append(f"Esta máquina: {maquina}")
@@ -98,7 +101,14 @@ def _tela(r, maquina, historico):
     linhas.append(f"{'Dia':<10} {'Transcrição':<18} {'Situação':<13} {'Transcritas':>13} {'IA':>11} {'Erros':>6}"
                   f" {'Áudio (h)':>13}  Com quem agora")
     tot = {"seg": 0, "seg_t": 0, "lig": 0, "trans": 0, "ia": 0, "prontos": 0, "dias": 0}
+    # Dias sem gravação no Native (já apagadas) foram pulados: uma linha só para eles.
+    sem = [d["data"] for d in r["dias"] if d["etapa"] == "indisponivel"]
+    if sem:
+        a, b = (dt.date.fromisoformat(x) for x in (sem[0], sem[-1]))
+        linhas.append(f"{CINZA}{a:%d/%m}–{b:%d/%m}  {len(sem)} dia(s) sem gravação no Native (pulados){FIM}")
     for d in r["dias"]:
+        if d["etapa"] == "indisponivel":
+            continue
         data = dt.date.fromisoformat(d["data"])
         frac = 1.0 if d["status"] == 2 else (d["seg_transcrito"] / d["seg"] if d["seg"] else 0.0)
         sit_pad = _pad(_situacao(d), 13)
@@ -111,14 +121,13 @@ def _tela(r, maquina, historico):
                       f" {d['transcritas']:>6}/{d['ligacoes']:<6} {d['analisadas']:>5}/{d['ligacoes']:<5}"
                       f" {d['erros']:>6} {_h(d['seg_transcrito'] if d['status'] != 2 else d['seg']):>6}/{_h(d['seg']):<6}"
                       f"  {', '.join(quem)}")
-        if d["etapa"] != "indisponivel":
-            tot["dias"] += 1
-            tot["seg"] += d["seg"]
-            tot["seg_t"] += d["seg"] if d["status"] == 2 else d["seg_transcrito"]
-            tot["lig"] += d["ligacoes"]
-            tot["trans"] += d["transcritas"]
-            tot["ia"] += d["analisadas"]
-            tot["prontos"] += d["status"] == 2
+        tot["dias"] += 1
+        tot["seg"] += d["seg"]
+        tot["seg_t"] += d["seg"] if d["status"] == 2 else d["seg_transcrito"]
+        tot["lig"] += d["ligacoes"]
+        tot["trans"] += d["transcritas"]
+        tot["ia"] += d["analisadas"]
+        tot["prontos"] += d["status"] == 2
     linhas.append("")
     frac = tot["seg_t"] / tot["seg"] if tot["seg"] else 0
     linhas.append(f"{NEGRITO}Mês:{FIM} {_barra(frac, 30)} {100 * frac:.0f}% do áudio transcrito"
