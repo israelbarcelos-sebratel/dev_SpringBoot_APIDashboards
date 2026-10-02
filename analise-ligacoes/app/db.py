@@ -131,6 +131,13 @@ SCHEMA = [
         ADD COLUMN IF NOT EXISTS prazo DATETIME NULL,
         ADD COLUMN IF NOT EXISTS tentativas TINYINT NOT NULL DEFAULT 0,
         ADD INDEX IF NOT EXISTS ix_dono (dono)""",
+    # Sentimento do cliente: toda ligação tem um (positivo | neutro | negativo), com a confiança (0 a 100) e, abaixo
+    # de 100, os motivos (JSON [{motivo, detalhe}]; os códigos estão em ia.MOTIVOS_SENTIMENTO/MOTIVOS_SERVIDOR).
+    """ALTER TABLE conversa_ligacao
+        ADD COLUMN IF NOT EXISTS sentimento VARCHAR(20) NULL,
+        ADD COLUMN IF NOT EXISTS sentimento_confianca TINYINT NULL,
+        ADD COLUMN IF NOT EXISTS sentimento_motivos TEXT NULL,
+        ADD INDEX IF NOT EXISTS ix_sentimento (sentimento, data)""",
 ]
 
 

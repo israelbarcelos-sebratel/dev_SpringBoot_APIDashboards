@@ -34,9 +34,52 @@ não fala nada e derruba; o cliente liga de novo logo em seguida.
 Roteiro de atendimento: saudação com o nome do atendente e "Sebratel"; identificação do cliente (nome/CPF/contrato); \
 protocolo informado; pergunta se pode ajudar em algo mais; encerramento cordial.
 
-Na dúvida use "indefinido"/"inconclusivo". Nunca invente falas que não estão na transcrição."""
+Sentimento do cliente (a Sebratel dá muita importância a ele): SEMPRE dê um valor — positivo, neutro ou negativo —, \
+no início, no fim e na ligação como um todo (pese mais o fim). A dúvida não vira "indefinido": vai na confiança. \
+Avalie pelas falas do cliente: reclamações, irritação, ameaça de cancelar, repetição do problema, agradecimentos, alívio. \
+sentimento_confianca (0 a 100) diz o quanto você tem certeza do sentimento geral: 100 só quando as falas do cliente \
+são claras, sem erro de transcrição que importe, sem dúvida de quem falou e coerentes do começo ao fim. Referência: \
+90–99 dúvida pequena; 70–89 dúvida real; 40–69 pouca evidência; abaixo de 40 quase um palpite (ex.: sem fala do \
+cliente — use neutro). Abaixo de 100, liste em sentimento_motivos TODOS os motivos que tiraram a certeza, cada um \
+com o detalhe concreto: o que, citando os segundos ou as falas.
+
+Na dúvida use "indefinido"/"inconclusivo" (menos no sentimento). Nunca invente falas que não estão na transcrição."""
 
 _SN = {"type": "BOOLEAN"}
+_SENT = {"type": "STRING", "enum": ["positivo", "neutro", "negativo"]}
+SENTIMENTOS = _SENT["enum"]
+# Por que o sentimento não tem 100% de confiança. Os da IA ficam no esquema; os outros o servidor põe (ele sabe o que a
+# IA não vê: ligação sem gravação, transcrição que falhou ou foi cortada).
+MOTIVOS_SENTIMENTO = {
+    "transcricao_ruim": "trecho importante com erro de transcrição ou sem sentido",
+    "quem_falou_incerto": "gravação mono: não dá para ter certeza de quem disse uma fala que pesa no sentimento",
+    "cliente_falou_pouco": "o cliente quase não falou",
+    "sinais_contraditorios": "sinais em sentidos opostos (ex.: agradece, mas continua reclamando)",
+    "tom_nao_captado": "o sentimento depende do tom de voz (ironia, irritação contida), que o texto não mostra",
+    "conversa_incompleta": "a ligação caiu ou foi transferida antes de dar para ver como o cliente terminou",
+    "sem_conversa_com_cliente": "sem fala do cliente (ligação muda, só o atendente, ou conversa entre colegas)",
+    "outro": "outro motivo (explicado no detalhe)",
+}
+MOTIVOS_SERVIDOR = {
+    "sem_gravacao": "sem gravação (não existe ou já foi apagada no Native): não há o que avaliar (valor padrão neutro)",
+    "sem_transcricao": "a transcrição falhou: não há o que avaliar (valor padrão neutro)",
+    "ia_falhou": "a análise da IA falhou: não há avaliação (valor padrão neutro)",
+    "transcricao_cortada": "a transcrição é longa demais e o meio da conversa não foi para a IA",
+    "sem_fala": "nenhuma fala detectada na gravação",
+    "motivo_nao_informado": "a IA baixou a confiança sem dizer por quê",
+}
+_MOTIVOS = {"type": "ARRAY", "description": "Obrigatório quando a confiança é menor que 100: todos os motivos.",
+            "items": {"type": "OBJECT", "properties": {
+                "motivo": {"type": "STRING", "enum": list(MOTIVOS_SENTIMENTO)},
+                "detalhe": {"type": "STRING", "description": "O que exatamente, citando os segundos ou as falas."}},
+                "required": ["motivo", "detalhe"]}}
+_CAMPOS_SENTIMENTO = {
+    "sentimento_inicio": _SENT,
+    "sentimento_fim": _SENT,
+    "sentimento": dict(_SENT, description="Sentimento do cliente na ligação como um todo (pese mais o fim)."),
+    "sentimento_confianca": {"type": "INTEGER", "description": "0 a 100: certeza sobre o sentimento geral."},
+    "sentimento_motivos": _MOTIVOS,
+}
 SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -47,8 +90,7 @@ SCHEMA = {
             "cancelamento", "mudanca_endereco", "troca_titularidade", "agendamento_visita", "reclamacao", "informacao",
             "interna_colegas", "outro"]},
         "resolvido": {"type": "STRING", "enum": ["sim", "nao", "parcial", "encaminhado", "indefinido"]},
-        "sentimento_inicio": {"type": "STRING", "enum": ["positivo", "neutro", "negativo", "indefinido"]},
-        "sentimento_fim": {"type": "STRING", "enum": ["positivo", "neutro", "negativo", "indefinido"]},
+        **_CAMPOS_SENTIMENTO,
         "satisfacao_estimada": {"type": "INTEGER", "description": "1 (muito insatisfeito) a 5 (muito satisfeito)"},
         "risco_cancelamento": _SN,
         "ligacao_interna": {"type": "BOOLEAN", "description": "Conversa entre colegas/técnicos, não com cliente."},
@@ -62,10 +104,12 @@ SCHEMA = {
         "palavras_chave": {"type": "ARRAY", "items": {"type": "STRING"}, "description": "Até 6."},
         "confianca": {"type": "NUMBER", "description": "0 a 1"},
     },
-    "required": ["resumo", "motivo_contato", "categoria", "resolvido", "sentimento_inicio", "sentimento_fim",
+    "required": ["resumo", "motivo_contato", "categoria", "resolvido", *_CAMPOS_SENTIMENTO,
                  "satisfacao_estimada", "risco_cancelamento", "ligacao_interna", "regra_mudo", "regra_mudo_justificativa",
                  "roteiro", "pontos_atencao", "palavras_chave", "confianca"],
 }
+# Só o sentimento: para completar as ligações analisadas antes de ele existir, sem refazer o resto.
+SCHEMA_SENTIMENTO = {"type": "OBJECT", "properties": _CAMPOS_SENTIMENTO, "required": list(_CAMPOS_SENTIMENTO)}
 
 _QUEM = {"Origem": "o cliente", "Destino": "o atendente", "Transferida": "transferida para outro atendente"}
 
@@ -79,9 +123,12 @@ def configurado():
     return bool(CHAVE)
 
 
+def _transcricao(l):
+    return "\n".join(f"{s['ini']:.0f}s {s['texto']}" for s in l.get("segmentos") or [])
+
+
 def _texto(l):
-    linhas = [f"{s['ini']:.0f}s {s['texto']}" for s in l.get("segmentos") or []]
-    texto = "\n".join(linhas) or "(nenhuma fala detectada)"
+    texto = _transcricao(l) or "(nenhuma fala detectada)"
     if len(texto) > MAX_CARACTERES:
         metade = MAX_CARACTERES // 2
         texto = texto[:metade] + "\n[…]\n" + texto[-metade:]
@@ -93,14 +140,50 @@ def _texto(l):
         f"Quem encerrou: {_QUEM.get(l.get('desconexao'), l.get('desconexao') or 'desconhecido')}",
         f"Cadeia de transferência: {cadeia}", f"Cliente ligou de novo: {religou}",
         f"Marcas: {'; '.join(l.get('marcas') or []) or 'nenhuma'}",
-        "Transcrição:", texto])
+        f"Transcrição (Whisper {l.get('modelo_stt') or '?'}; o modelo small erra mais que o medium):", texto])
 
 
-def analisar(l):
-    """Devolve (resultado, modelo). Levanta exceção se o Gemini não responder depois das tentativas."""
+def ajustar_sentimento(x, l):
+    """Garante o contrato do sentimento: sempre um valor, confiança de 0 a 100 e, abaixo de 100, os motivos
+    explícitos. Soma o que o servidor sabe e a IA não vê (sem fala, transcrição cortada); a confiança nunca fica maior
+    do que esses motivos permitem."""
+    motivos = [{"motivo": m["motivo"], "detalhe": (m.get("detalhe") or "").strip()[:300]}
+               for m in x.get("sentimento_motivos") or [] if isinstance(m, dict) and m.get("motivo")]
+    try:
+        conf = max(0, min(100, round(float(x.get("sentimento_confianca")))))
+    except (TypeError, ValueError):
+        conf = 0
+        motivos.append({"motivo": "motivo_nao_informado", "detalhe": "a IA não informou a confiança"})
+    if x.get("sentimento") not in SENTIMENTOS:
+        fim = x.get("sentimento_fim")
+        x["sentimento"] = fim if fim in SENTIMENTOS else "neutro"
+        conf = min(conf, 30)
+        motivos.append({"motivo": "outro", "detalhe": "a IA não deu o sentimento geral: vale o do fim da ligação"
+                        if fim in SENTIMENTOS else "a IA não deu o sentimento: valor padrão neutro"})
+    for campo in ("sentimento_inicio", "sentimento_fim"):
+        if x.get(campo) not in SENTIMENTOS:
+            x[campo] = x["sentimento"]
+    texto = _transcricao(l)
+    if not texto.strip():
+        conf = min(conf, 10)
+        motivos.append({"motivo": "sem_fala", "detalhe": MOTIVOS_SERVIDOR["sem_fala"]})
+    elif len(texto) > MAX_CARACTERES:
+        conf = min(conf, 90)
+        motivos.append({"motivo": "transcricao_cortada", "detalhe": f"a transcrição tem {len(texto)} caracteres; só "
+                        f"os primeiros e os últimos {MAX_CARACTERES // 2} foram para a IA"})
+    if conf < 100 and not motivos:
+        motivos.append({"motivo": "motivo_nao_informado", "detalhe": MOTIVOS_SERVIDOR["motivo_nao_informado"]})
+    x.update(sentimento_confianca=conf, sentimento_motivos=motivos)
+    return x
+
+
+def analisar(l, so_sentimento=False):
+    """Devolve (resultado, modelo). Levanta exceção se o Gemini não responder depois das tentativas.
+    so_sentimento: pede só os campos do sentimento (ligações analisadas antes de ele existir)."""
     corpo = json.dumps({
         "contents": [{"role": "user", "parts": [{"text": f"{INSTRUCOES}\n\nDADOS DA LIGAÇÃO\n{_texto(l)}\n\nResponda só o JSON."}]}],
-        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json", "responseSchema": SCHEMA},
+        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json",
+                             "responseSchema": SCHEMA_SENTIMENTO if so_sentimento else SCHEMA},
     }).encode()
     req = urllib.request.Request(API.format(modelo=MODELO), data=corpo, method="POST",
                                  headers={"Content-Type": "application/json", "x-goog-api-key": CHAVE})
@@ -112,7 +195,8 @@ def analisar(l):
             with urllib.request.urlopen(req, timeout=180) as r:
                 resp = json.load(r)
             partes = resp["candidates"][0]["content"]["parts"]
-            return json.loads("".join(p.get("text", "") for p in partes if not p.get("thought"))), MODELO
+            x = json.loads("".join(p.get("text", "") for p in partes if not p.get("thought")))
+            return ajustar_sentimento(x, l), MODELO
         except urllib.error.HTTPError as e:
             ultimo = f"HTTP {e.code}: {e.read()[:300].decode(errors='replace')}"
             if e.code not in (429, 500, 502, 503, 504):
