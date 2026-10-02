@@ -110,6 +110,7 @@ services:
   # Histórico (n8n/historico-conversas.json): todas as ligações, transcrição completa + IA, um dia por vez.
   #   A chave do Gemini fica só no n8n (credencial usada pelo nó do histórico); o container a recebe a cada chamada e
   #   guarda só em memória. Só o TEXTO mascarado vai para o Gemini; nada de áudio fica guardado.
+  #   HISTORICO_GPU_TOKEN (opcional): liga o ajudante com GPU, que transcreve junto e acelera o histórico.
   analise-ligacoes:
     build:
       context: ./analise-ligacoes
@@ -134,7 +135,11 @@ services:
       MODELO_HISTORICO: "${HISTORICO_MODELO:-small}"     # small: ~2x mais rápido que o medium, qualidade parecida
       THREADS_HISTORICO: "${HISTORICO_THREADS:-6}"
       HISTORICO_DESDE: "${HISTORICO_DESDE:-}"            # vazio = desde o 1º dia do db_native (dias sem gravação são pulados)
-      IA_PARALELO: "${HISTORICO_IA_PARALELO:-4}"
+      # Com o ajudante com GPU a transcrição de um dia cai para ~1 h e a IA vira o gargalo: 8 chamadas ao mesmo tempo.
+      IA_PARALELO: "${HISTORICO_IA_PARALELO:-8}"
+      # Ajudante com GPU (analise-ligacoes/gpu, numa máquina da Sebratel): pede ligações pelo webhook do n8n
+      # (n8n/historico-gpu.json) com este token no header X-Gpu-Token. Vazio = desligado.
+      GPU_TOKEN: "${HISTORICO_GPU_TOKEN:-}"
     volumes:
       - whisper-modelos:/modelos   # modelo do Whisper (~1,5 GB, baixado no primeiro uso)
     # O servidor é dividido com as APIs e outros ~45 containers: o n8n roda de madrugada e isto fica limitado.

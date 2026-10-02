@@ -1,0 +1,45 @@
+# Ajudante com GPU do histórico de conversas — roda numa máquina da Sebratel com placa NVIDIA (Docker Desktop com
+# WSL2 + driver NVIDIA no Windows, ou nvidia-container-toolkit no Linux). Transcreve junto com o servidor o dia que o
+# histórico está processando; o servidor distribui as ligações e grava tudo no banco. Nada de áudio fica guardado.
+# Medido numa RTX 3050 Laptop (6 GB): Whisper medium em lote de 8 = ~49x o tempo real (servidor, small na CPU: ~7,5x),
+# ~2,3 GB de memória da placa por processo. Usa a máquina toda: 2 processos na GPU e a CPU inteira com o small
+# (ligações curtas, prioridade mínima) = ~63x o tempo real, CPU ~99%, GPU ~90%, ~7 GB de RAM. O servidor continua
+# transcrevendo no ritmo dele (~7,5x) ao mesmo tempo; os dois somam.
+#
+#   1. Crie gpu.env aqui (ignorado pelo git) com GPU_TOKEN=<o mesmo valor de GPU_TOKEN na stack do Portainer>
+#   2. docker compose up -d --build        (de dentro de analise-ligacoes/gpu)
+#   3. docker compose logs -f              (andamento) · docker compose down (para; as ligações voltam para a fila)
+#
+# Pode desligar a máquina a qualquer momento: o que estava com ela volta para a fila (na hora, ou quando a reserva
+# vencer em 20 min) e o servidor segue sozinho.
+services:
+  historico-gpu:
+    build:
+      context: ..
+      dockerfile: gpu/Dockerfile
+    image: analise-ligacoes-gpu:local
+    container_name: historico-gpu
+    env_file: gpu.env
+    environment:
+      SERVIDOR_URL: "${SERVIDOR_URL:-https://n8n-staging.sebratel.net.br/webhook/historico-gpu}"
+      MODELO_GPU: "${MODELO_GPU:-medium}"       # Whisper na placa (lote de 8)
+      GPU_PROCESSOS: "${GPU_PROCESSOS:-2}"      # 2 numa placa de 6 GB (com 3 a memória estoura e fica 3x mais lento)
+      MODELO_CPU: "${MODELO_CPU:-small}"        # Whisper na CPU, só para ligações curtas (até CPU_ATE_SEG)
+      CPU_THREADS: "${CPU_THREADS:-4}"
+      CPU_PROCESSOS: "${CPU_PROCESSOS:-}"       # vazio = a CPU inteira (4 numa CPU de 16 threads), em prioridade mínima
+      CPU_ATE_SEG: "${CPU_ATE_SEG:-600}"
+      DOWNLOADS: "${DOWNLOADS:-4}"
+    volumes:
+      - modelos-gpu:/modelos   # modelo do Whisper (~1,5 GB, baixado no primeiro uso)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    stop_grace_period: 30s   # tempo para devolver as reservas ao parar
+    restart: unless-stopped
+
+volumes:
+  modelos-gpu:
