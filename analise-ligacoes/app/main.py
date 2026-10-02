@@ -13,8 +13,11 @@ POST /historico/avancar             garante o processo rodando (o n8n chama de t
 GET  /historico                     andamento: dias 0/1/2, dia atual, ritmo, previsão
 GET  /historico/dias                a tabela de dias (?status=0|1|2)
 POST /historico/reavaliar           volta para a IA as ligações em que ela falhou (?data=AAAA-MM-DD opcional)
+POST /historico/gpu                 ajudante com GPU: {acao: pegar | entregar | falhou} (header X-Gpu-Token; chega pelo
+                                    webhook do n8n, n8n/historico-gpu.json — o container continua sem porta publicada)
 """
 import datetime as dt
+import hmac
 import html
 import json
 import logging
@@ -25,7 +28,7 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import db, gemini, historico, ia, pipeline, regras
 
@@ -349,3 +352,44 @@ def historico_dias(status: Optional[int] = Query(default=None)):
 def historico_reavaliar(data: Optional[str] = Query(default=None)):
     historico.reavaliar(_data(data) if data else None)
     return {"status": "reavaliando", "data": data}
+
+
+class Segmento(BaseModel):
+    ini: float
+    fim: float
+    texto: str = Field(max_length=5000)
+
+
+class Transcricao(BaseModel):
+    duracao: float
+    falaSeg: float
+    inicioFala: Optional[float] = None
+    buracos: list[list[float]] = Field(max_length=5000)
+    segmentos: list[Segmento] = Field(max_length=20000)
+
+
+class PedidoGpu(BaseModel):
+    acao: str = Field(pattern="^(vivo|pegar|entregar|falhou)$")
+    worker: str = Field(pattern=r"^[\w.-]{1,40}$")
+    n: int = 4
+    reserva: Optional[str] = Field(default=None, max_length=60)
+    reservas: list[str] = Field(default=[], max_length=100)  # vivo: as que o ajudante tem em mãos agora
+    protocolo: Optional[str] = Field(default=None, max_length=50)
+    resultado: Optional[Transcricao] = None
+    modelo: Optional[str] = Field(default=None, max_length=40)
+    erro: Optional[str] = Field(default=None, max_length=2000)
+    contar: bool = True
+    definitivo: bool = False
+
+
+@app.post("/historico/gpu")
+def historico_gpu(p: PedidoGpu, x_gpu_token: str = Header(default="")):
+    if not historico.GPU_TOKEN:
+        raise HTTPException(404, "ajudante com GPU desligado (GPU_TOKEN vazio na stack)")
+    if not hmac.compare_digest(x_gpu_token.encode(), historico.GPU_TOKEN.encode()):
+        raise HTTPException(401, "token inválido")
+    if p.acao in ("entregar", "falhou") and not (p.reserva and p.protocolo):
+        raise HTTPException(400, "reserva e protocolo são obrigatórios")
+    if p.acao == "entregar" and not p.resultado:
+        raise HTTPException(400, "resultado é obrigatório")
+    return historico.gpu_pedido(p.model_dump())

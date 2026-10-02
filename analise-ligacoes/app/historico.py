@@ -4,7 +4,12 @@ análise da IA (só texto mascarado) em conversa_ligacao; o andamento por dia em
 O áudio é baixado para uma pasta temporária e apagado logo depois de transcrito — nada de áudio fica guardado.
 
 Depois de terminar um dia passa sozinho para o próximo, até ontem. O n8n só chama POST /historico/avancar de
-tempos em tempos: se o processo tiver parado (container reiniciado), ele volta de onde estava."""
+tempos em tempos: se o processo tiver parado (container reiniciado), ele volta de onde estava.
+
+Ajudantes com GPU (app/gpu.py, numa máquina da Sebratel com placa NVIDIA) transcrevem o dia junto com o servidor, que
+continua no ritmo dele. Os dois tiram ligações da MESMA fila por reserva atômica no banco (dono + prazo): uma ligação
+nunca fica com dois, e a entrega só vale para quem ainda tem a reserva. Erro numa ligação: ela volta para a fila (até
+TENTATIVAS_MAX). Ajudante que some: a reserva vence e a ligação volta; o servidor segue sozinho."""
 import datetime as dt
 import json
 import logging
@@ -15,6 +20,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
@@ -30,13 +36,27 @@ LOTE = int(os.environ.get("LOTE_HISTORICO", "40"))  # ligações por worker; ent
 IA_PARALELO = int(os.environ.get("IA_PARALELO", "4"))
 AMOSTRA = 12          # gravações testadas para saber se o dia ainda existe no Native
 TMP = os.path.join(pipeline.TMP, "historico")
+TENTATIVAS_MAX = 3    # erros da própria ligação (download, áudio, worker que caiu nela) antes de desistir dela
+CPU_PRAZO_MIN = 720   # reserva de um lote do servidor (pode esperar a análise diária)
+GPU_TOKEN = os.environ.get("GPU_TOKEN", "")          # vazio = ajudantes com GPU desligados
+GPU_PRAZO_MIN = int(os.environ.get("GPU_PRAZO_MIN", "20"))
+GPU_SILENCIO = 180    # s sem notícia de nenhum ajudante -> não está mais ativo
+LOTE_COM_GPU = 6      # com ajudante ativo o servidor pega lotes pequenos: o fim do dia não fica esperando um lote dele
+GPU_LOTE_MAX = 16
 
-_estado = {"rodando": False, "dia": None, "erro": None}
+_estado = {"rodando": False, "dia": None, "etapa": None, "erro": None}
+_gpu = {}             # ajudante -> time.time() do último contato
 _lock = threading.Lock()
 
 
 def estado():
-    return dict(_estado)
+    agora = time.time()
+    return dict(_estado, gpu={"ativa": gpu_ativa(), "ajudantes": {k: round(agora - t) for k, t in _gpu.items()}})
+
+
+def gpu_ativa():
+    agora = time.time()
+    return any(agora - t < GPU_SILENCIO for t in _gpu.values())
 
 
 def avancar():
@@ -66,7 +86,7 @@ def _loop():
         _estado["erro"] = str(e)[:500]
     finally:
         con.close()
-        _estado.update(rodando=False, dia=None)
+        _estado.update(rodando=False, dia=None, etapa=None)
 
 
 def dias_candidatos():
@@ -123,23 +143,20 @@ def _processar_dia(con, data):
             " atendimento_seg, cidade, religou_min, gravacao) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             [(l["protocolo"], data, l["data_hora"], l["agente"], l["fila"], l["sentido"], l["desconexao"], l["espera"],
               l["seg"], l["cidade"], l["religou"], l["gravacao"]) for l in linhas])
-        # Retoma: o que estava baixando/transcrevendo volta para a fila; o que estava na IA volta para "transcrita".
-        cur.execute("UPDATE conversa_ligacao SET status=0, etapa=NULL WHERE data=%s AND status=1 AND etapa IN"
-                    " ('baixando','transcrevendo')", (data,))
+        # Retoma: o que o servidor estava baixando/transcrevendo volta para a fila (o lote morreu com o container);
+        # o que está com um ajudante com GPU continua dele até a reserva vencer. O que estava na IA volta para "transcrita".
+        cur.execute("UPDATE conversa_ligacao SET status=0, etapa=NULL, dono=NULL, prazo=NULL WHERE data=%s AND status=1"
+                    " AND etapa IN ('baixando','transcrevendo') AND (dono IS NULL OR dono LIKE 'cpu-%%')", (data,))
         cur.execute("UPDATE conversa_ligacao SET etapa='transcrita' WHERE data=%s AND status=1 AND etapa='ia'", (data,))
+        cur.execute("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(), erro='sem gravação'"
+                    " WHERE data=%s AND status=0 AND gravacao IS NULL", (data,))
         cur.execute("UPDATE conversa_dia SET total=(SELECT COUNT(*) FROM conversa_ligacao WHERE data=%s) WHERE data=%s",
                     (data, data))
     log.info("%s: %d ligações", data, len(linhas))
 
-    pend = deque(sql("SELECT protocolo, gravacao FROM conversa_ligacao WHERE data=%s AND status=0 ORDER BY data_hora",
-                     (data,)))
-    quedas = {}
-    while pend:
-        lote = [pend.popleft() for _ in range(min(LOTE, len(pend)))]
-        voltam = _lote(con, data, lote, quedas)
-        pend.extendleft(reversed(voltam))
-        _contar(con, data)
-
+    _estado["etapa"] = "transcrevendo"
+    _transcrever_dia(con, data)
+    _estado["etapa"] = "ia"
     sql("UPDATE conversa_dia SET etapa='ia' WHERE data=%s", (data,))
     _regras(con, data)
     _ia(con, data)
@@ -157,20 +174,98 @@ def _contar(con, data):
                     " WHERE d.data=%s", (data, data, data, data))
 
 
+def _faltam(con, data):
+    """Ligações do dia ainda sem transcrição: na fila ou reservadas."""
+    with con.cursor() as cur:
+        cur.execute("SELECT COUNT(*) n FROM conversa_ligacao WHERE data=%s AND (status=0 OR (status=1 AND dono IS NOT NULL))",
+                    (data,))
+        return cur.fetchone()["n"]
+
+
+def _devolver_vencidas(con, data):
+    """Reserva vencida (ajudante sumiu: desligou, perdeu a rede): a ligação volta para a fila sem contar tentativa."""
+    with con.cursor() as cur:
+        cur.execute("UPDATE conversa_ligacao SET status=0, etapa=NULL, dono=NULL, prazo=NULL"
+                    " WHERE data=%s AND status=1 AND dono IS NOT NULL AND prazo < NOW()", (data,))
+        if cur.rowcount:
+            log.info("%s: %d reserva(s) vencida(s) voltaram para a fila", data, cur.rowcount)
+
+
+def reservar(con, data, dono, n, minutos):
+    """Reserva atômica: um UPDATE só pega linhas em status 0 (o InnoDB trava as linhas; dois pedidos ao mesmo tempo
+    nunca levam a mesma ligação). Devolve as ligações reservadas por `dono`."""
+    with con.cursor() as cur:
+        cur.execute("UPDATE conversa_ligacao SET status=1, etapa='baixando', dono=%s, prazo=NOW() + INTERVAL %s MINUTE,"
+                    " inicio=NOW() WHERE data=%s AND status=0 ORDER BY data_hora LIMIT %s", (dono, minutos, data, n))
+        if not cur.rowcount:
+            return []
+        cur.execute("SELECT protocolo, gravacao, atendimento_seg FROM conversa_ligacao WHERE dono=%s AND status=1"
+                    " ORDER BY data_hora", (dono,))
+        return cur.fetchall()
+
+
+def salvar_transcricao(cur, protocolo, dono, r, modelo):
+    """Grava a transcrição se `dono` ainda tem a reserva (ou se ela venceu e ninguém pegou de novo). Devolve se gravou."""
+    segs = [{"ini": s["ini"], "fim": s["fim"], "texto": regras.mascarar(s["texto"])} for s in r["segmentos"]]
+    dur = r["duracao"] or 0
+    cur.execute("UPDATE conversa_ligacao SET status=1, etapa='transcrita', dono=NULL, prazo=NULL, erro=NULL,"
+                " duracao_audio=%s, fala_seg=%s, silencio_pct=%s, inicio_fala=%s, maior_silencio=%s, buracos=%s,"
+                " transcricao=%s, palavras=%s, modelo_stt=%s WHERE protocolo=%s AND (dono=%s OR status=0)",
+                (dur, r["falaSeg"], round(100 * (1 - r["falaSeg"] / dur), 1) if dur else None, r["inicioFala"],
+                 max((b - a for a, b in r["buracos"]), default=0), json.dumps(r["buracos"]),
+                 json.dumps(segs, ensure_ascii=False), sum(len(s["texto"].split()) for s in segs), modelo[:40],
+                 protocolo, dono))
+    return cur.rowcount > 0
+
+
+def falhou(cur, protocolo, dono, erro, contar=True, definitivo=False):
+    """Erro numa ligação reservada por `dono`. definitivo (ex.: gravação apagada no Native): erro e pronto. Senão volta
+    para a fila; com `contar`, soma uma tentativa e na TENTATIVAS_MAX desiste dela (erro gravado). `contar=False` é
+    para falha de quem processa (rede, GPU), não da ligação."""
+    n = TENTATIVAS_MAX if definitivo else int(contar)
+    # tentativas é atribuída por último: as expressões antes dela leem o valor antigo (vale em qualquer sql_mode).
+    cur.execute("UPDATE conversa_ligacao SET status=IF(tentativas+%s>=%s, 2, 0), etapa=IF(tentativas+%s>=%s, 'pronto', NULL),"
+                " erro=IF(tentativas+%s>=%s, %s, NULL), fim=IF(tentativas+%s>=%s, NOW(), NULL), dono=NULL, prazo=NULL,"
+                " tentativas=LEAST(tentativas+%s, 100) WHERE protocolo=%s AND dono=%s AND status=1",
+                (n, TENTATIVAS_MAX, n, TENTATIVAS_MAX, n, TENTATIVAS_MAX, (erro or "erro")[:500], n, TENTATIVAS_MAX,
+                 n, protocolo, dono))
+    return cur.rowcount > 0
+
+
 def _esperar_vez():
-    """Solta o Whisper para a análise diária (prioridade) e espera ela terminar."""
+    """Solta o Whisper para a análise diária (prioridade) e espera ela terminar (os ajudantes seguem)."""
     while pipeline.DIARIO_QUER.is_set() or pipeline.rodando():
         time.sleep(30)
 
 
-def _lote(con, data, lote, quedas):
-    """Transcreve um lote com um worker novo (memória limpa). Devolve as ligações que voltam para a fila."""
+def _transcrever_dia(con, data):
+    """Até não sobrar ligação sem transcrição: o servidor transcreve em lotes, junto com os ajudantes com GPU que
+    estiverem ativos. Termina só quando ninguém mais tem reserva do dia."""
+    while True:
+        _devolver_vencidas(con, data)
+        _contar(con, data)
+        if not _faltam(con, data):
+            return
+        _esperar_vez()
+        dono = f"cpu-{uuid.uuid4().hex[:8]}"
+        lote = reservar(con, data, dono, LOTE_COM_GPU if gpu_ativa() else LOTE, CPU_PRAZO_MIN)
+        if lote:
+            _lote(con, data, dono, lote)
+        else:
+            time.sleep(15)  # o que falta está com a GPU: espera a entrega ou a reserva vencer
+
+
+def _lote(con, data, dono, lote):
+    """Transcreve um lote reservado com um worker novo (memória limpa)."""
     def marcar(q, a):
         with con.cursor() as cur:
             cur.execute(q, a)
 
+    def erro(p, msg, contar=True, definitivo=False):
+        with con.cursor() as cur:
+            falhou(cur, p, dono, msg, contar, definitivo)
+
     os.makedirs(TMP, exist_ok=True)
-    _esperar_vez()
     fila = deque(lote)
     em_voo = {}
     with pipeline.WHISPER:
@@ -181,12 +276,6 @@ def _lote(con, data, lote, quedas):
                 while fila or em_voo:
                     while fila and len(em_voo) < 3:
                         l = fila.popleft()
-                        if not l["gravacao"]:
-                            marcar("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(), erro='sem gravação'"
-                                   " WHERE protocolo=%s", (l["protocolo"],))
-                            continue
-                        marcar("UPDATE conversa_ligacao SET status=1, etapa='baixando', inicio=NOW() WHERE protocolo=%s",
-                               (l["protocolo"],))
                         em_voo[downloads.submit(pipeline._baixar, l["protocolo"], l["gravacao"], TMP)] = ("baixar", l)
                     if not em_voo:
                         break
@@ -198,50 +287,67 @@ def _lote(con, data, lote, quedas):
                             try:
                                 caminho = fut.result()
                             except urllib.error.HTTPError as e:
-                                msg = "gravação não existe mais no Native" if e.code == 404 else f"download: HTTP {e.code}"
-                                marcar("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(), erro=%s"
-                                       " WHERE protocolo=%s", (msg, p))
+                                if e.code == 404:
+                                    erro(p, "gravação não existe mais no Native", definitivo=True)
+                                else:
+                                    erro(p, f"download: HTTP {e.code}")
                                 continue
                             except Exception as e:  # noqa: BLE001
-                                marcar("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(), erro=%s"
-                                       " WHERE protocolo=%s", (f"download: {e}"[:500], p))
+                                erro(p, f"download: {e}"[:500])
                                 continue
-                            marcar("UPDATE conversa_ligacao SET etapa='transcrevendo' WHERE protocolo=%s", (p,))
+                            marcar("UPDATE conversa_ligacao SET etapa='transcrevendo' WHERE protocolo=%s AND dono=%s",
+                                   (p, dono))
                             em_voo[whisper.submit(pipeline.transcrever, p, caminho, True)] = ("transcrever", l)
                         else:
                             r = fut.result()
                             if r.get("erro"):
-                                marcar("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(), erro=%s"
-                                       " WHERE protocolo=%s", (r["erro"], p))
-                                continue
-                            segs = r["segmentos"]
-                            dur = r["duracao"] or 0
-                            marcar("UPDATE conversa_ligacao SET etapa='transcrita', duracao_audio=%s, fala_seg=%s,"
-                                   " silencio_pct=%s, inicio_fala=%s, maior_silencio=%s, buracos=%s, transcricao=%s,"
-                                   " palavras=%s, modelo_stt=%s WHERE protocolo=%s",
-                                   (dur, r["falaSeg"], round(100 * (1 - r["falaSeg"] / dur), 1) if dur else None,
-                                    r["inicioFala"], max((b - a for a, b in r["buracos"]), default=0),
-                                    json.dumps(r["buracos"]), json.dumps(segs, ensure_ascii=False),
-                                    sum(len(s["texto"].split()) for s in segs), MODELO, p))
+                                erro(p, r["erro"])
+                            else:
+                                with con.cursor() as cur:
+                                    salvar_transcricao(cur, p, dono, r, MODELO)
             except BrokenProcessPool:
-                # Worker morreu (memória): quem estava em andamento volta para a fila; 2 quedas na mesma -> erro.
+                # Worker morreu (memória): conta tentativa para quem estava no Whisper; o resto volta sem contar.
                 log.warning("%s: worker caiu no histórico", data)
-                voltam = []
-                for tipo, l in list(em_voo.values()) + [(None, x) for x in fila]:
-                    p = l["protocolo"]
-                    if tipo == "transcrever":
-                        quedas[p] = quedas.get(p, 0) + 1
-                    if quedas.get(p, 0) >= pipeline.QUEDAS_MAX:
-                        marcar("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(),"
-                               " erro='o worker do Whisper caiu 2 vezes nesta ligação (memória?)' WHERE protocolo=%s", (p,))
-                    else:
-                        marcar("UPDATE conversa_ligacao SET status=0, etapa=NULL WHERE protocolo=%s", (p,))
-                        voltam.append(l)
-                return voltam
+                for tipo, l in em_voo.values():
+                    erro(l["protocolo"], "o worker do Whisper caiu nesta ligação (memória?)", contar=tipo == "transcrever")
+                em_voo.clear()
             finally:
+                for l in fila:  # não começaram (o worker caiu antes): voltam para a fila sem contar
+                    erro(l["protocolo"], None, contar=False)
                 for f in os.listdir(TMP):
                     os.remove(os.path.join(TMP, f))
-    return []
+
+
+def gpu_pedido(p):
+    """Pedidos do ajudante com GPU (via POST /historico/gpu). Cada pedido conta como sinal de vida dele."""
+    _gpu[p["worker"]] = time.time()
+    with db.app() as con, con.cursor() as cur:
+        if p["acao"] == "vivo":
+            # A cada minuto, mesmo no meio de uma ligação longa: renova só as reservas que ele diz ter em mãos (as de
+            # uma execução anterior que caiu, mesmo com o mesmo nome, vencem e voltam para a fila).
+            prefixo = f"gpu-{p['worker'][:24]}-"
+            minhas = [r for r in p.get("reservas") or [] if r.startswith(prefixo)]
+            if not minhas:
+                return {"renovadas": 0}
+            cur.execute("UPDATE conversa_ligacao SET prazo=NOW() + INTERVAL %s MINUTE WHERE status=1 AND dono IN ("
+                        + ",".join(["%s"] * len(minhas)) + ")", (GPU_PRAZO_MIN, *minhas))
+            return {"renovadas": cur.rowcount}
+        if p["acao"] == "pegar":
+            data = _estado["dia"]
+            if not _estado["rodando"] or _estado["etapa"] != "transcrevendo" or not data:
+                return {"itens": [], "esperar": 60, "motivo": f"servidor em: {_estado['etapa'] or 'pausa'}"}
+            _devolver_vencidas(con, data)
+            dono = f"gpu-{p['worker'][:24]}-{uuid.uuid4().hex[:8]}"
+            itens = reservar(con, data, dono, max(1, min(p.get("n") or 4, GPU_LOTE_MAX)), GPU_PRAZO_MIN)
+            return {"data": data, "reserva": dono, "prazoMin": GPU_PRAZO_MIN, "esperar": 0 if itens else 30,
+                    "itens": [{"protocolo": i["protocolo"], "gravacao": i["gravacao"], "seg": i["atendimento_seg"]}
+                              for i in itens]}
+        if p["acao"] == "entregar":
+            return {"aceita": salvar_transcricao(cur, p["protocolo"], p["reserva"], p["resultado"], p["modelo"] or "gpu")}
+        if p["acao"] == "falhou":
+            return {"aceita": falhou(cur, p["protocolo"], p["reserva"], p.get("erro"), p.get("contar", True),
+                                     p.get("definitivo", False))}
+    raise ValueError(f"ação desconhecida: {p['acao']}")
 
 
 def _regras(con, data):

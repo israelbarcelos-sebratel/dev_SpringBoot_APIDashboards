@@ -124,6 +124,13 @@ SCHEMA = [
         KEY ix_categoria (categoria, data),
         KEY ix_regra (regra_mudo, data)
     ) DEFAULT CHARSET=utf8mb4""",
+    # Reserva: quem está com a ligação (servidor "cpu-…" ou ajudante "gpu-…") e até quando. Ninguém pega uma
+    # ligação reservada; a entrega só vale para quem ainda tem a reserva. tentativas = erros da própria ligação.
+    """ALTER TABLE conversa_ligacao
+        ADD COLUMN IF NOT EXISTS dono VARCHAR(60) NULL,
+        ADD COLUMN IF NOT EXISTS prazo DATETIME NULL,
+        ADD COLUMN IF NOT EXISTS tentativas TINYINT NOT NULL DEFAULT 0,
+        ADD INDEX IF NOT EXISTS ix_dono (dono)""",
 ]
 
 

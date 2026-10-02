@@ -51,12 +51,17 @@ def hms(v):
 
 # ---------------------------------------------------------------- worker (processo separado)
 _modelo = None
+_em_lote = None  # GPU: trechos de fala transcritos em lote (~2,5x mais rápido que um por vez, mesmo texto)
+LOTE_GPU = int(os.environ.get("BATCH_GPU", "8"))
 
 
-def _iniciar_worker(modelo, threads):
-    global _modelo
-    from faster_whisper import WhisperModel
-    _modelo = WhisperModel(modelo, device="cpu", compute_type="int8", cpu_threads=threads)
+def _iniciar_worker(modelo, threads, dispositivo="cpu"):
+    global _modelo, _em_lote
+    from faster_whisper import BatchedInferencePipeline, WhisperModel
+    _modelo = WhisperModel(modelo, device=dispositivo, cpu_threads=threads,
+                           compute_type="int8" if dispositivo == "cpu" else os.environ.get("COMPUTE_GPU", "int8_float16"))
+    if dispositivo != "cpu" and LOTE_GPU > 1:
+        _em_lote = BatchedInferencePipeline(_modelo)
 
 
 def transcrever(protocolo, caminho, completa=False):
@@ -82,8 +87,13 @@ def transcrever(protocolo, caminho, completa=False):
         partes = [(0.0, dur)] if completa or dur <= CURTA else [(0.0, INICIO), (dur - FIM, dur)]
         segs = []
         for a, b in partes:
-            it, _ = _modelo.transcribe(audio[int(a * SR):int(b * SR)], language="pt", vad_filter=True, beam_size=1,
-                                       vad_parameters={"min_silence_duration_ms": 1000})
+            trecho = audio[int(a * SR):int(b * SR)]
+            if _em_lote is not None:
+                it, _ = _em_lote.transcribe(trecho, language="pt", batch_size=LOTE_GPU, beam_size=1,
+                                            without_timestamps=False, vad_parameters={"min_silence_duration_ms": 1000})
+            else:
+                it, _ = _modelo.transcribe(trecho, language="pt", vad_filter=True, beam_size=1,
+                                           vad_parameters={"min_silence_duration_ms": 1000})
             segs += [{"ini": round(a + s.start, 1), "fim": round(a + s.end, 1), "texto": regras.mascarar(s.text.strip())}
                      for s in it]
         r.update(duracao=round(dur, 1), falaSeg=round(sum(b - a for a, b in fala), 1),

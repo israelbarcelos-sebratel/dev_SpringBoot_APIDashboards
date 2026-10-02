@@ -1,0 +1,81 @@
+{
+  "name": "Histórico de conversas – ponte do ajudante com GPU",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "historico-gpu",
+        "responseMode": "lastNode",
+        "responseData": "firstEntryJson",
+        "options": {}
+      },
+      "id": "c3a0d001-0000-4000-8000-000000000001",
+      "name": "Pedido do ajudante",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "e984160b-f01d-46ce-b438-32caa28784de",
+      "notes": "Ponte HTTPS para o ajudante com GPU (analise-ligacoes/gpu, numa máquina da Sebratel): o container analise-ligacoes não tem porta publicada. O token (header X-Gpu-Token) é conferido pelo container. Execuções não são salvas: o corpo traz transcrições (já mascaradas)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://analise-ligacoes:8000/historico/gpu",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Gpu-Token",
+              "value": "={{ $json.headers['x-gpu-token'] || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 90000
+        }
+      },
+      "id": "c3a0d001-0000-4000-8000-000000000002",
+      "name": "Repassar ao container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        0
+      ],
+      "notes": "Só repassa: a fila, as reservas e o banco ficam no container (POST /historico/gpu). Erros do container (token, validação) voltam no corpo como {detail}."
+    }
+  ],
+  "connections": {
+    "Pedido do ajudante": {
+      "main": [
+        [
+          {
+            "node": "Repassar ao container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "pinData": {}
+}
