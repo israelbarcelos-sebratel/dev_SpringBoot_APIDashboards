@@ -52,7 +52,7 @@ _completar = {"rodando": False, "dia": None, "faltam": None}   # sentimento das 
 _gpu = {}             # ajudante -> time.time() do último contato
 _native_mes = {}      # "AAAA-MM" -> (time.time(), {dia: {ligacoes, seg}}): cache do volume do mês no db_native
 _candidatos = [0.0, []]   # cache de dias_candidatos() para os pedidos dos ajudantes
-ADIANTAR_DIAS = 3     # quantos dias à frente os ajudantes podem adiantar enquanto o servidor faz a IA
+ADIANTAR_DIAS = 3     # dias à frente COM O QUE TRANSCREVER que os ajudantes adiantam enquanto o servidor faz a IA
 _adiantar_lock = threading.Lock()
 _lock = threading.Lock()
 
@@ -161,11 +161,13 @@ def _registrar(con, data):
 
 def _dias_adiantados(con, data, maximo=ADIANTAR_DIAS):
     """Os próximos dias depois de `data` que ainda não estão prontos, registrados na hora em que são pedidos (para os
-    ajudantes adiantarem); no máximo `maximo` dias à frente. Dias prontos ou sem gravação não contam."""
+    ajudantes adiantarem); no máximo `maximo` dias à frente com o que transcrever. Dias prontos, sem gravação ou já
+    todo transcrito (só esperando a IA do servidor) não contam: o ajudante não fica parado enquanto a IA anda atrás."""
     if time.time() - _candidatos[0] > 600:
         _candidatos[:] = [time.time(), dias_candidatos()]
     with con.cursor() as cur:
-        cur.execute("SELECT data, status, total FROM conversa_dia WHERE data > %s", (data,))
+        cur.execute("SELECT d.data, d.status, d.total, (SELECT COUNT(*) FROM conversa_ligacao l WHERE l.data=d.data"
+                    " AND l.status=0) fila FROM conversa_dia d WHERE d.data > %s", (data,))
         dias = {str(r["data"]): r for r in cur.fetchall()}
     for d in (d for d in _candidatos[1] if d > data):
         if maximo <= 0:
@@ -177,6 +179,8 @@ def _dias_adiantados(con, data, maximo=ADIANTAR_DIAS):
             with _adiantar_lock:  # dois pedidos ao mesmo tempo não registram o mesmo dia duas vezes
                 if _registrar(con, d) is None:
                     continue  # gravações apagadas: o dia fica indisponível
+        elif not r["fila"]:
+            continue  # já todo transcrito (ou com o servidor/outro ajudante): espera só a IA
         maximo -= 1
         yield d
 
@@ -278,21 +282,24 @@ def falhou(cur, protocolo, dono, erro, contar=True, definitivo=False):
     return cur.rowcount > 0
 
 
-def _esperar_vez():
-    """Solta o Whisper para a análise diária (prioridade) e espera ela terminar (os ajudantes seguem)."""
-    while pipeline.DIARIO_QUER.is_set() or pipeline.rodando():
-        time.sleep(30)
+def _diaria_ocupando():
+    """A análise diária tem prioridade no Whisper do servidor (os ajudantes seguem)."""
+    return pipeline.DIARIO_QUER.is_set() or pipeline.rodando()
 
 
 def _transcrever_dia(con, data):
     """Até não sobrar ligação sem transcrição: o servidor transcreve em lotes, junto com os ajudantes com GPU que
-    estiverem ativos. Termina só quando ninguém mais tem reserva do dia."""
+    estiverem ativos. Termina só quando ninguém mais tem reserva do dia. Com a análise diária no Whisper do servidor
+    ele não pega lote, mas segue acompanhando: se os ajudantes terminarem o dia, já vai para a IA (que não usa o
+    Whisper) em vez de esperar a diária acabar."""
     while True:
         _devolver_vencidas(con, data)
         _contar(con, data)
         if not _faltam(con, data):
             return
-        _esperar_vez()
+        if _diaria_ocupando():
+            time.sleep(30)
+            continue
         dono = f"cpu-{uuid.uuid4().hex[:8]}"
         lote = reservar(con, data, dono, LOTE_COM_GPU if gpu_ativa() else LOTE, CPU_PRAZO_MIN)
         if lote:

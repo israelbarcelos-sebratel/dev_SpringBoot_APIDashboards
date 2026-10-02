@@ -9,7 +9,9 @@
 #   1. Crie gpu.env aqui (ignorado pelo git) com GPU_TOKEN=<o mesmo valor de GPU_TOKEN na stack do Portainer>
 #   2. docker compose up -d --build        (de dentro de analise-ligacoes/gpu)
 #   3. docker compose logs -f              (andamento) · docker compose down (para; as ligações voltam para a fila)
-#   4. docker exec -it historico-gpu python -m app.painel   (painel do mês em processamento, atualiza a cada 2 min)
+#   4. docker exec -it historico-gpu python -m app.painel   (painel do mês em processamento, atualiza a cada 10 s)
+#   5. Windows: deixe rodando manter-acordado.ps1 (instruções nele) — o modo de espera por inatividade pausa o
+#      Docker e o ajudante para (aconteceu a noite toda em 02/10).
 #
 # Pode desligar a máquina a qualquer momento: o que estava com ela volta para a fila (na hora, ou quando a reserva
 # vencer em 20 min) e o servidor segue sozinho.
