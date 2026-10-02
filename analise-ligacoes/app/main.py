@@ -377,6 +377,11 @@ class PedidoGpu(BaseModel):
     reserva: Optional[str] = Field(default=None, max_length=60)
     reservas: list[str] = Field(default=[], max_length=100)  # vivo: as que o ajudante tem em mãos agora
     data: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")  # resumo: o dia
+    # resumo: recorte (LIKE, juntos com OU) e se devolve cada ligação do recorte
+    fila: Optional[str] = Field(default=None, max_length=60)
+    agente: Optional[str] = Field(default=None, max_length=80)
+    categoria: Optional[str] = Field(default=None, max_length=40)
+    ligacoes: bool = False
     protocolo: Optional[str] = Field(default=None, max_length=50)
     resultado: Optional[Transcricao] = None
     modelo: Optional[str] = Field(default=None, max_length=40)
