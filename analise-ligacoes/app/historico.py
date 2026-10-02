@@ -12,6 +12,7 @@ continua no ritmo dele. Quando o dia não tem mais o que transcrever (o servidor
 nunca fica com dois, e a entrega só vale para quem ainda tem a reserva. Erro numa ligação: ela volta para a fila (até
 TENTATIVAS_MAX). Ajudante que some: a reserva vence e a ligação volta; o servidor segue sozinho."""
 import datetime as dt
+import decimal
 import json
 import logging
 import multiprocessing as mp
@@ -409,11 +410,68 @@ def andamento_mes():
     return {"agora": agora, "mes": mes, "estado": estado(), "dias": out, "modelos": modelos}
 
 
+def resumo_dia(data):
+    """Resultado de um dia do histórico, agregado (para o resumo pedido pelo ajudante): volumes, categorias, resultado,
+    satisfação, roteiro, regra do mudo (casos), por atendente, fila e hora. Texto só o já mascarado (justificativas)."""
+    def q(sql, a=()):
+        cur.execute(sql, (data, *a))
+        return [{k: float(v) if isinstance(v, decimal.Decimal) else str(v) if isinstance(v, (dt.date, dt.timedelta))
+                 else v for k, v in r.items()} for r in cur.fetchall()]
+
+    cliente = " AND IFNULL(ligacao_interna, 0)=0 AND ia_em IS NOT NULL"
+    with db.app() as con, con.cursor() as cur:
+        dia = q("SELECT * FROM conversa_dia WHERE data=%s")
+        tot = q("SELECT COUNT(*) ligacoes, SUM(transcricao IS NOT NULL) transcritas, SUM(ia_em IS NOT NULL) analisadas,"
+                " SUM(erro IS NOT NULL) erros_transcricao, SUM(ia_erro IS NOT NULL) erros_ia,"
+                " SUM(IFNULL(ligacao_interna, 0)) internas, SUM(atendimento_seg) seg, AVG(atendimento_seg) tma_seg,"
+                " AVG(espera_seg) espera_media_seg, AVG(silencio_pct) silencio_medio_pct, AVG(satisfacao_estimada) satisfacao,"
+                " SUM(risco_cancelamento) risco_cancelamento, SUM(religou_min IS NOT NULL) religou_2h,"
+                " SUM(desconexao='Origem') cliente_desligou, SUM(desconexao='Destino') atendente_desligou,"
+                " SUM(desconexao='Transferida') transferidas FROM conversa_ligacao WHERE data=%s")[0]
+        por = {}
+        for campo in ("categoria", "resolvido", "sentimento_inicio", "sentimento_fim", "satisfacao_estimada", "regra_mudo",
+                      "modelo_stt"):
+            por[campo] = q(f"SELECT {campo} valor, COUNT(*) n FROM conversa_ligacao WHERE data=%s AND ia_em IS NOT NULL"
+                           f" GROUP BY {campo} ORDER BY n DESC")
+        por["categoria_detalhe"] = q("SELECT categoria, COUNT(*) n, AVG(satisfacao_estimada) satisfacao,"
+                                     " SUM(resolvido='sim') resolvidas, AVG(atendimento_seg) tma_seg,"
+                                     " SUM(risco_cancelamento) risco FROM conversa_ligacao WHERE data=%s" + cliente
+                                     + " GROUP BY categoria ORDER BY n DESC")
+        por["sentimento"] = q("SELECT sentimento_inicio inicio, sentimento_fim fim, COUNT(*) n FROM conversa_ligacao"
+                              " WHERE data=%s" + cliente + " GROUP BY inicio, fim ORDER BY n DESC")
+        por["motivos"] = q("SELECT motivo, COUNT(*) n FROM conversa_ligacao WHERE data=%s" + cliente
+                           + " GROUP BY motivo ORDER BY n DESC LIMIT 20")
+        por["agente"] = q("SELECT agente, COUNT(*) n, AVG(atendimento_seg) tma_seg, AVG(satisfacao_estimada) satisfacao,"
+                          " SUM(resolvido='sim') resolvidas, SUM(resolvido='nao') nao_resolvidas,"
+                          " SUM(sentimento_fim='negativo') terminou_negativo, SUM(risco_cancelamento) risco,"
+                          " SUM(regra_mudo='sim') mudo_sim, SUM(regra_mudo='inconclusivo') mudo_inconclusivo,"
+                          " SUM(religou_min IS NOT NULL) religou_2h, AVG(silencio_pct) silencio_pct"
+                          " FROM conversa_ligacao WHERE data=%s" + cliente + " GROUP BY agente ORDER BY n DESC")
+        por["fila"] = q("SELECT fila, COUNT(*) n, AVG(atendimento_seg) tma_seg, AVG(satisfacao_estimada) satisfacao,"
+                        " SUM(resolvido='sim') resolvidas FROM conversa_ligacao WHERE data=%s" + cliente
+                        + " GROUP BY fila ORDER BY n DESC")
+        por["hora"] = q("SELECT HOUR(data_hora) hora, COUNT(*) n, AVG(satisfacao_estimada) satisfacao"
+                        " FROM conversa_ligacao WHERE data=%s" + cliente + " GROUP BY hora ORDER BY hora")
+        mudo = q("SELECT protocolo, TIME(data_hora) hora, agente, fila, atendimento_seg seg, desconexao, religou_min,"
+                 " peso, regra_mudo, regra_mudo_justificativa justificativa, ia_confianca FROM conversa_ligacao"
+                 " WHERE data=%s AND regra_mudo IN ('sim','inconclusivo') ORDER BY regra_mudo DESC, peso DESC")
+        cur.execute("SELECT roteiro FROM conversa_ligacao WHERE data=%s" + cliente + " AND roteiro IS NOT NULL", (data,))
+        roteiro = {}
+        for r in cur.fetchall():
+            for k, v in (json.loads(r["roteiro"]) or {}).items():
+                c = roteiro.setdefault(k, {"sim": 0, "total": 0})
+                c["total"] += 1
+                c["sim"] += bool(v)
+    return {"data": data, "dia": dia[0] if dia else None, "totais": tot, "por": por, "roteiro": roteiro, "mudo": mudo}
+
+
 def gpu_pedido(p):
     """Pedidos do ajudante com GPU (via POST /historico/gpu). Cada pedido conta como sinal de vida dele (menos o
     andamento, que é só leitura para o painel)."""
     if p["acao"] == "andamento":
         return andamento_mes()
+    if p["acao"] == "resumo":
+        return resumo_dia(p["data"])
     _gpu[p["worker"]] = time.time()
     with db.app() as con, con.cursor() as cur:
         if p["acao"] == "vivo":
