@@ -374,17 +374,20 @@ def andamento_mes():
         cache = _native_mes.get(mes)
         if not cache or time.time() - cache[0] > 1800:
             with db.origem() as org, org.cursor() as c2:
-                c2.execute("SELECT DATE(data_hora) d, COUNT(*) n, SUM(TIME_TO_SEC(atendimento)) s FROM db_native"
-                           " WHERE perdida IS NULL AND data_hora >= %s AND data_hora < %s AND data_hora < CURDATE()"
-                           + (" AND data_hora >= %s" if DESDE else "") + " GROUP BY DATE(data_hora)",
-                           (ini, fim, DESDE) if DESDE else (ini, fim))
+                # Um protocolo por ligação (o db_native repete alguns), como no registro do dia (INSERT IGNORE).
+                c2.execute("SELECT d, COUNT(*) n, SUM(s) s FROM (SELECT DATE(MIN(data_hora)) d,"
+                           " MAX(TIME_TO_SEC(atendimento)) s FROM db_native WHERE perdida IS NULL AND data_hora >= %s"
+                           " AND data_hora < %s AND data_hora < CURDATE()" + (" AND data_hora >= %s" if DESDE else "")
+                           + " GROUP BY protocolo) x GROUP BY d", (ini, fim, DESDE) if DESDE else (ini, fim))
                 cache = _native_mes[mes] = (time.time(), {str(r["d"]): {"ligacoes": r["n"], "seg": int(r["s"] or 0)}
                                                           for r in c2.fetchall()})
         cur.execute("SELECT * FROM conversa_dia WHERE data >= %s AND data < %s", (ini, fim))
         dias = {str(r["data"]): r for r in cur.fetchall()}
         cur.execute("SELECT data, COUNT(*) total, SUM(transcricao IS NOT NULL) transcritas, SUM(ia_em IS NOT NULL) analisadas,"
-                    " SUM(erro IS NOT NULL OR ia_erro IS NOT NULL) erros, SUM(atendimento_seg) seg,"
+                    " SUM(erro IS NOT NULL OR ia_erro IS NOT NULL) erros, SUM(erro IS NOT NULL) erros_transcricao,"
+                    " SUM(ia_erro IS NOT NULL) erros_ia, SUM(atendimento_seg) seg,"
                     " SUM(IF(transcricao IS NOT NULL, atendimento_seg, 0)) seg_transcrito,"
+                    " SUM(IF(erro IS NOT NULL, atendimento_seg, 0)) seg_erro,"
                     " SUM(status=1 AND dono LIKE 'gpu-%%') com_ajudante, SUM(status=1 AND dono LIKE 'cpu-%%') com_servidor"
                     " FROM conversa_ligacao WHERE data >= %s AND data < %s GROUP BY data", (ini, fim))
         lig = {str(r["data"]): r for r in cur.fetchall()}
@@ -399,8 +402,10 @@ def andamento_mes():
         out.append({"data": d, "status": r.get("status", 0), "etapa": r.get("etapa"),
                     "iniciada": txt(r.get("iniciada")), "terminada": txt(r.get("terminada")),
                     "ligacoes": l.get("total") or n.get("ligacoes", 0), "seg": int(l.get("seg") or n.get("seg", 0)),
-                    **{k: int(l.get(k) or 0) for k in ("transcritas", "analisadas", "erros", "seg_transcrito",
-                                                         "com_ajudante", "com_servidor")}})
+                    "registrado": bool(l), "native": n,
+                    **{k: int(l.get(k) or 0) for k in ("transcritas", "analisadas", "erros", "erros_transcricao",
+                                                         "erros_ia", "seg_transcrito", "seg_erro", "com_ajudante",
+                                                         "com_servidor")}})
     return {"agora": agora, "mes": mes, "estado": estado(), "dias": out, "modelos": modelos}
 
 
