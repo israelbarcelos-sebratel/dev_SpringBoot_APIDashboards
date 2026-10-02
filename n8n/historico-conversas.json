@@ -7,13 +7,13 @@
           "interval": [
             {
               "field": "minutes",
-              "minutesInterval": 15
+              "minutesInterval": 5
             }
           ]
         }
       },
       "id": "b2f0c001-0000-4000-8000-000000000001",
-      "name": "A cada 15 min",
+      "name": "A cada 5 min",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
@@ -47,7 +47,7 @@
     }
   ],
   "connections": {
-    "A cada 15 min": {
+    "A cada 5 min": {
       "main": [
         [
           {

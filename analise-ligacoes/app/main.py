@@ -106,7 +106,7 @@ def _startup():
             log.info("retomando %s", r["data"])
             pipeline.iniciar(str(r["data"]))
             break
-        # Histórico: a chave do Gemini só chega na próxima chamada do n8n (até 15 min) e aí ele continua.
+        # Histórico: a chave do Gemini só chega na próxima chamada do n8n (até 5 min) e aí ele continua.
     threading.Thread(target=preparar, daemon=True).start()
 
 

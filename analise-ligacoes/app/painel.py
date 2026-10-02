@@ -114,7 +114,7 @@ def _tela(r, maquina, hist):
     if est.get("rodando") and est.get("dia"):
         servidor = f"dia {dt.date.fromisoformat(est['dia']):%d/%m} · {est.get('etapa') or 'começando'}"
     else:
-        servidor = "começando" if est.get("rodando") else f"{AMARELO}parado — o n8n retoma em até 15 min{FIM}"
+        servidor = "começando" if est.get("rodando") else f"{AMARELO}parado — o n8n retoma em até 5 min{FIM}"
     linhas.append(f"Servidor: {servidor} · ajudante: {', '.join(vivos) if vivos else VERMELHO + 'nenhum ativo' + FIM}"
                   + (f" · {VERMELHO}erro: {est['erro']}{FIM}" if est.get("erro") else ""))
     linhas.append(f"Esta máquina: {maquina}")
