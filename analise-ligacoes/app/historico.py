@@ -46,6 +46,7 @@ GPU_LOTE_MAX = 16
 
 _estado = {"rodando": False, "dia": None, "etapa": None, "erro": None}
 _gpu = {}             # ajudante -> time.time() do último contato
+_native_mes = {}      # "AAAA-MM" -> (time.time(), {dia: {ligacoes, seg}}): cache do volume do mês no db_native
 _lock = threading.Lock()
 
 
@@ -318,8 +319,56 @@ def _lote(con, data, dono, lote):
                     os.remove(os.path.join(TMP, f))
 
 
+def andamento_mes():
+    """Para o painel do ajudante: o mês do dia em processamento, dia a dia (só números, nada de texto)."""
+    def txt(v):
+        return str(v) if isinstance(v, (dt.date, dt.datetime)) else v
+    with db.app() as con, con.cursor() as cur:
+        dia = _estado["dia"]
+        if not dia:
+            cur.execute("SELECT MAX(data) d FROM conversa_dia WHERE status>0")
+            dia = txt(cur.fetchone()["d"]) or dt.date.today().isoformat()
+        mes = dia[:7]
+        ini = dt.date.fromisoformat(mes + "-01")
+        fim = (ini + dt.timedelta(days=32)).replace(day=1)
+        cache = _native_mes.get(mes)
+        if not cache or time.time() - cache[0] > 1800:
+            with db.origem() as org, org.cursor() as c2:
+                c2.execute("SELECT DATE(data_hora) d, COUNT(*) n, SUM(TIME_TO_SEC(atendimento)) s FROM db_native"
+                           " WHERE perdida IS NULL AND data_hora >= %s AND data_hora < %s AND data_hora < CURDATE()"
+                           + (" AND data_hora >= %s" if DESDE else "") + " GROUP BY DATE(data_hora)",
+                           (ini, fim, DESDE) if DESDE else (ini, fim))
+                cache = _native_mes[mes] = (time.time(), {str(r["d"]): {"ligacoes": r["n"], "seg": int(r["s"] or 0)}
+                                                          for r in c2.fetchall()})
+        cur.execute("SELECT * FROM conversa_dia WHERE data >= %s AND data < %s", (ini, fim))
+        dias = {str(r["data"]): r for r in cur.fetchall()}
+        cur.execute("SELECT data, COUNT(*) total, SUM(transcricao IS NOT NULL) transcritas, SUM(ia_em IS NOT NULL) analisadas,"
+                    " SUM(erro IS NOT NULL OR ia_erro IS NOT NULL) erros, SUM(atendimento_seg) seg,"
+                    " SUM(IF(transcricao IS NOT NULL, atendimento_seg, 0)) seg_transcrito,"
+                    " SUM(status=1 AND dono LIKE 'gpu-%%') com_ajudante, SUM(status=1 AND dono LIKE 'cpu-%%') com_servidor"
+                    " FROM conversa_ligacao WHERE data >= %s AND data < %s GROUP BY data", (ini, fim))
+        lig = {str(r["data"]): r for r in cur.fetchall()}
+        cur.execute("SELECT modelo_stt, COUNT(*) n, SUM(atendimento_seg) seg FROM conversa_ligacao"
+                    " WHERE data >= %s AND data < %s AND transcricao IS NOT NULL GROUP BY modelo_stt", (ini, fim))
+        modelos = {r["modelo_stt"] or "?": {"ligacoes": r["n"], "seg": int(r["seg"] or 0)} for r in cur.fetchall()}
+        cur.execute("SELECT NOW() agora")
+        agora = txt(cur.fetchone()["agora"])
+    out = []
+    for d in sorted(set(cache[1]) | set(dias)):
+        r, l, n = dias.get(d) or {}, lig.get(d) or {}, cache[1].get(d) or {}
+        out.append({"data": d, "status": r.get("status", 0), "etapa": r.get("etapa"),
+                    "iniciada": txt(r.get("iniciada")), "terminada": txt(r.get("terminada")),
+                    "ligacoes": l.get("total") or n.get("ligacoes", 0), "seg": int(l.get("seg") or n.get("seg", 0)),
+                    **{k: int(l.get(k) or 0) for k in ("transcritas", "analisadas", "erros", "seg_transcrito",
+                                                         "com_ajudante", "com_servidor")}})
+    return {"agora": agora, "mes": mes, "estado": estado(), "dias": out, "modelos": modelos}
+
+
 def gpu_pedido(p):
-    """Pedidos do ajudante com GPU (via POST /historico/gpu). Cada pedido conta como sinal de vida dele."""
+    """Pedidos do ajudante com GPU (via POST /historico/gpu). Cada pedido conta como sinal de vida dele (menos o
+    andamento, que é só leitura para o painel)."""
+    if p["acao"] == "andamento":
+        return andamento_mes()
     _gpu[p["worker"]] = time.time()
     with db.app() as con, con.cursor() as cur:
         if p["acao"] == "vivo":

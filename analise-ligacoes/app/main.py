@@ -13,8 +13,9 @@ POST /historico/avancar             garante o processo rodando (o n8n chama de t
 GET  /historico                     andamento: dias 0/1/2, dia atual, ritmo, previsão
 GET  /historico/dias                a tabela de dias (?status=0|1|2)
 POST /historico/reavaliar           volta para a IA as ligações em que ela falhou (?data=AAAA-MM-DD opcional)
-POST /historico/gpu                 ajudante com GPU: {acao: pegar | entregar | falhou} (header X-Gpu-Token; chega pelo
-                                    webhook do n8n, n8n/historico-gpu.json — o container continua sem porta publicada)
+POST /historico/gpu                 ajudante com GPU: {acao: vivo | pegar | entregar | falhou | andamento} (header
+                                    X-Gpu-Token; chega pelo webhook do n8n, n8n/historico-gpu.json — o container continua
+                                    sem porta publicada). andamento: o mês em processamento, dia a dia (painel)
 """
 import datetime as dt
 import hmac
@@ -369,7 +370,7 @@ class Transcricao(BaseModel):
 
 
 class PedidoGpu(BaseModel):
-    acao: str = Field(pattern="^(vivo|pegar|entregar|falhou)$")
+    acao: str = Field(pattern="^(vivo|pegar|entregar|falhou|andamento)$")
     worker: str = Field(pattern=r"^[\w.-]{1,40}$")
     n: int = 4
     reserva: Optional[str] = Field(default=None, max_length=60)
