@@ -7,7 +7,8 @@ Depois de terminar um dia passa sozinho para o próximo, até ontem. O n8n só c
 tempos em tempos: se o processo tiver parado (container reiniciado), ele volta de onde estava.
 
 Ajudantes com GPU (app/gpu.py, numa máquina da Sebratel com placa NVIDIA) transcrevem o dia junto com o servidor, que
-continua no ritmo dele. Os dois tiram ligações da MESMA fila por reserva atômica no banco (dono + prazo): uma ligação
+continua no ritmo dele. Quando o dia não tem mais o que transcrever (o servidor está na IA dele, ou terminando os
+últimos lotes), os ajudantes já adiantam o dia seguinte: ele é registrado antes e o servidor o encontra meio pronto. Os dois tiram ligações da MESMA fila por reserva atômica no banco (dono + prazo): uma ligação
 nunca fica com dois, e a entrega só vale para quem ainda tem a reserva. Erro numa ligação: ela volta para a fila (até
 TENTATIVAS_MAX). Ajudante que some: a reserva vence e a ligação volta; o servidor segue sozinho."""
 import datetime as dt
@@ -47,6 +48,9 @@ GPU_LOTE_MAX = 16
 _estado = {"rodando": False, "dia": None, "etapa": None, "erro": None}
 _gpu = {}             # ajudante -> time.time() do último contato
 _native_mes = {}      # "AAAA-MM" -> (time.time(), {dia: {ligacoes, seg}}): cache do volume do mês no db_native
+_candidatos = [0.0, []]   # cache de dias_candidatos() para os pedidos dos ajudantes
+ADIANTAR_DIAS = 3     # quantos dias à frente os ajudantes podem adiantar enquanto o servidor faz a IA
+_adiantar_lock = threading.Lock()
 _lock = threading.Lock()
 
 
@@ -121,6 +125,54 @@ def _gravacao_existe(url):
     return False
 
 
+def _registrar(con, data):
+    """Grava as ligações do dia (do db_native) em conversa_ligacao; as que já estão ficam como estão. Devolve quantas
+    tem, ou None se as gravações do dia já foram apagadas no Native (o dia fica como indisponível)."""
+    with con.cursor() as cur:
+        cur.execute("SELECT COUNT(*) n FROM conversa_ligacao WHERE data=%s", (data,))
+        ja = cur.fetchone()["n"]
+    linhas = pipeline.listar_dia(data)
+    with con.cursor() as cur:
+        if not ja:
+            amostra = random.sample([l for l in linhas if l["gravacao"]], min(AMOSTRA, sum(1 for l in linhas if l["gravacao"])))
+            if amostra and not any(_gravacao_existe(l["gravacao"]) for l in amostra):
+                cur.execute("INSERT INTO conversa_dia (data, status, etapa, total, terminada, observacao)"
+                            " VALUES (%s, 2, 'indisponivel', %s, NOW(), 'gravações já apagadas no Native')"
+                            " ON DUPLICATE KEY UPDATE status=2, etapa='indisponivel', total=VALUES(total), terminada=NOW(),"
+                            " observacao=VALUES(observacao)", (data, len(linhas)))
+                log.info("%s: gravações indisponíveis no Native", data)
+                return None
+        cur.executemany(
+            "INSERT IGNORE INTO conversa_ligacao (protocolo, data, data_hora, agente, fila, sentido, desconexao, espera_seg,"
+            " atendimento_seg, cidade, religou_min, gravacao) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            [(l["protocolo"], data, l["data_hora"], l["agente"], l["fila"], l["sentido"], l["desconexao"], l["espera"],
+              l["seg"], l["cidade"], l["religou"], l["gravacao"]) for l in linhas])
+        cur.execute("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(), erro='sem gravação'"
+                    " WHERE data=%s AND status=0 AND gravacao IS NULL", (data,))
+        cur.execute("INSERT INTO conversa_dia (data, total) SELECT %s, COUNT(*) FROM conversa_ligacao WHERE data=%s"
+                    " ON DUPLICATE KEY UPDATE total=VALUES(total)", (data, data))
+    return len(linhas)
+
+
+def _dias_adiantados(con, data, maximo=ADIANTAR_DIAS):
+    """Os próximos dias depois de `data` que ainda não estão prontos, registrados na hora em que são pedidos (para os
+    ajudantes adiantarem); no máximo `maximo` dias à frente."""
+    if time.time() - _candidatos[0] > 600:
+        _candidatos[:] = [time.time(), dias_candidatos()]
+    with con.cursor() as cur:
+        cur.execute("SELECT data, status, total FROM conversa_dia WHERE data > %s", (data,))
+        dias = {str(r["data"]): r for r in cur.fetchall()}
+    for d in [d for d in _candidatos[1] if d > data][:maximo]:
+        r = dias.get(d)
+        if r and r["status"] == 2:
+            continue
+        if not (r and r["total"]):
+            with _adiantar_lock:  # dois pedidos ao mesmo tempo não registram o mesmo dia duas vezes
+                if _registrar(con, d) is None:
+                    continue  # gravações apagadas: o dia fica indisponível
+        yield d
+
+
 def _processar_dia(con, data):
     def sql(q, a=()):
         with con.cursor() as cur:
@@ -129,31 +181,16 @@ def _processar_dia(con, data):
 
     sql("INSERT INTO conversa_dia (data, status, etapa, iniciada) VALUES (%s, 1, 'transcrevendo', NOW())"
         " ON DUPLICATE KEY UPDATE status=1, etapa='transcrevendo', iniciada=IFNULL(iniciada, NOW()), terminada=NULL", (data,))
-    ja = sql("SELECT COUNT(*) n FROM conversa_ligacao WHERE data=%s", (data,))[0]["n"]
-    linhas = pipeline.listar_dia(data)
-    if not ja:
-        amostra = random.sample([l for l in linhas if l["gravacao"]], min(AMOSTRA, sum(1 for l in linhas if l["gravacao"])))
-        if amostra and not any(_gravacao_existe(l["gravacao"]) for l in amostra):
-            sql("UPDATE conversa_dia SET status=2, etapa='indisponivel', total=%s, terminada=NOW(),"
-                " observacao='gravações já apagadas no Native' WHERE data=%s", (len(linhas), data))
-            log.info("%s: gravações indisponíveis no Native", data)
-            return
+    n = _registrar(con, data)
+    if n is None:
+        return
     with con.cursor() as cur:
-        cur.executemany(
-            "INSERT IGNORE INTO conversa_ligacao (protocolo, data, data_hora, agente, fila, sentido, desconexao, espera_seg,"
-            " atendimento_seg, cidade, religou_min, gravacao) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            [(l["protocolo"], data, l["data_hora"], l["agente"], l["fila"], l["sentido"], l["desconexao"], l["espera"],
-              l["seg"], l["cidade"], l["religou"], l["gravacao"]) for l in linhas])
         # Retoma: o que o servidor estava baixando/transcrevendo volta para a fila (o lote morreu com o container);
         # o que está com um ajudante com GPU continua dele até a reserva vencer. O que estava na IA volta para "transcrita".
         cur.execute("UPDATE conversa_ligacao SET status=0, etapa=NULL, dono=NULL, prazo=NULL WHERE data=%s AND status=1"
                     " AND etapa IN ('baixando','transcrevendo') AND (dono IS NULL OR dono LIKE 'cpu-%%')", (data,))
         cur.execute("UPDATE conversa_ligacao SET etapa='transcrita' WHERE data=%s AND status=1 AND etapa='ia'", (data,))
-        cur.execute("UPDATE conversa_ligacao SET status=2, etapa='pronto', fim=NOW(), erro='sem gravação'"
-                    " WHERE data=%s AND status=0 AND gravacao IS NULL", (data,))
-        cur.execute("UPDATE conversa_dia SET total=(SELECT COUNT(*) FROM conversa_ligacao WHERE data=%s) WHERE data=%s",
-                    (data, data))
-    log.info("%s: %d ligações", data, len(linhas))
+    log.info("%s: %d ligações", data, n)
 
     _estado["etapa"] = "transcrevendo"
     _transcrever_dia(con, data)
@@ -382,12 +419,23 @@ def gpu_pedido(p):
                         + ",".join(["%s"] * len(minhas)) + ")", (GPU_PRAZO_MIN, *minhas))
             return {"renovadas": cur.rowcount}
         if p["acao"] == "pegar":
-            data = _estado["dia"]
-            if not _estado["rodando"] or _estado["etapa"] != "transcrevendo" or not data:
-                return {"itens": [], "esperar": 60, "motivo": f"servidor em: {_estado['etapa'] or 'pausa'}"}
-            _devolver_vencidas(con, data)
+            # O ajudante não para: com o servidor parado (ex.: logo depois de um redeploy, até o n8n chamar) ele
+            # adianta os primeiros dias que faltam; o servidor os encontra meio prontos quando voltar.
+            rodando = _estado["rodando"] and _estado["dia"]
+            data = _estado["dia"] if rodando else "0000-00-00"
             dono = f"gpu-{p['worker'][:24]}-{uuid.uuid4().hex[:8]}"
-            itens = reservar(con, data, dono, max(1, min(p.get("n") or 4, GPU_LOTE_MAX)), GPU_PRAZO_MIN)
+            n = max(1, min(p.get("n") or 4, GPU_LOTE_MAX))
+            itens = []
+            if rodando and _estado["etapa"] == "transcrevendo":
+                _devolver_vencidas(con, data)
+                itens = reservar(con, data, dono, n, GPU_PRAZO_MIN)
+            if not itens:  # o dia não tem mais o que transcrever (IA ou últimos lotes do servidor): adianta os próximos
+                for proximo in _dias_adiantados(con, data):
+                    _devolver_vencidas(con, proximo)
+                    itens = reservar(con, proximo, dono, n, GPU_PRAZO_MIN)
+                    if itens:
+                        data = proximo
+                        break
             return {"data": data, "reserva": dono, "prazoMin": GPU_PRAZO_MIN, "esperar": 0 if itens else 30,
                     "itens": [{"protocolo": i["protocolo"], "gravacao": i["gravacao"], "seg": i["atendimento_seg"]}
                               for i in itens]}
