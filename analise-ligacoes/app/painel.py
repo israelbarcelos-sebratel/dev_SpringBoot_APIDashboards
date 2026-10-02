@@ -78,6 +78,8 @@ def _situacao(d):
         return (CINZA + "sem gravação" + FIM) if d["etapa"] == "indisponivel" else (VERDE + "pronto" + FIM)
     if d["status"] == 1:
         return (AMARELO + "IA" + FIM) if d["etapa"] == "ia" else (AZUL + "transcrevendo" + FIM)
+    if d["transcritas"] or d["com_ajudante"]:
+        return AZUL + "adiantando" + FIM  # o ajudante já transcreve enquanto o servidor faz a IA de outro dia
     return CINZA + "na fila" + FIM
 
 
