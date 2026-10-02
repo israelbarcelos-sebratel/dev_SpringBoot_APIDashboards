@@ -13,9 +13,10 @@ POST /historico/avancar             garante o processo rodando (o n8n chama de t
 GET  /historico                     andamento: dias 0/1/2, dia atual, ritmo, previsão
 GET  /historico/dias                a tabela de dias (?status=0|1|2)
 POST /historico/reavaliar           volta para a IA as ligações em que ela falhou (?data=AAAA-MM-DD opcional)
-POST /historico/gpu                 ajudante com GPU: {acao: vivo | pegar | entregar | falhou | andamento} (header
+POST /historico/gpu                 ajudante com GPU: {acao: vivo | pegar | entregar | falhou | andamento | resumo} (header
                                     X-Gpu-Token; chega pelo webhook do n8n, n8n/historico-gpu.json — o container continua
-                                    sem porta publicada). andamento: o mês em processamento, dia a dia (painel)
+                                    sem porta publicada). andamento: o mês em processamento, dia a dia (painel); resumo: o
+                                    resultado agregado de um dia ({data})
 """
 import datetime as dt
 import hmac
@@ -370,11 +371,12 @@ class Transcricao(BaseModel):
 
 
 class PedidoGpu(BaseModel):
-    acao: str = Field(pattern="^(vivo|pegar|entregar|falhou|andamento)$")
+    acao: str = Field(pattern="^(vivo|pegar|entregar|falhou|andamento|resumo)$")
     worker: str = Field(pattern=r"^[\w.-]{1,40}$")
     n: int = 4
     reserva: Optional[str] = Field(default=None, max_length=60)
     reservas: list[str] = Field(default=[], max_length=100)  # vivo: as que o ajudante tem em mãos agora
+    data: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")  # resumo: o dia
     protocolo: Optional[str] = Field(default=None, max_length=50)
     resultado: Optional[Transcricao] = None
     modelo: Optional[str] = Field(default=None, max_length=40)
@@ -391,6 +393,8 @@ def historico_gpu(p: PedidoGpu, x_gpu_token: str = Header(default="")):
         raise HTTPException(401, "token inválido")
     if p.acao in ("entregar", "falhou") and not (p.reserva and p.protocolo):
         raise HTTPException(400, "reserva e protocolo são obrigatórios")
+    if p.acao == "resumo" and not p.data:
+        raise HTTPException(400, "data é obrigatória (AAAA-MM-DD)")
     if p.acao == "entregar" and not p.resultado:
         raise HTTPException(400, "resultado é obrigatório")
     return historico.gpu_pedido(p.model_dump())
