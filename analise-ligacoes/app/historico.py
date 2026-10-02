@@ -36,6 +36,7 @@ MODELO = os.environ.get("MODELO_HISTORICO", "small")
 THREADS = int(os.environ.get("THREADS_HISTORICO", str(pipeline.THREADS)))
 LOTE = int(os.environ.get("LOTE_HISTORICO", "40"))  # ligações por worker; entre lotes a análise diária pode entrar
 IA_PARALELO = int(os.environ.get("IA_PARALELO", "4"))
+SENTIMENTO_PARALELO = int(os.environ.get("SENTIMENTO_PARALELO", "2"))  # completar dias antigos sem tirar o Gemini do dia
 AMOSTRA = 12          # gravações testadas para saber se o dia ainda existe no Native
 TMP = os.path.join(pipeline.TMP, "historico")
 TENTATIVAS_MAX = 3    # erros da própria ligação (download, áudio, worker que caiu nela) antes de desistir dela
@@ -47,6 +48,7 @@ LOTE_COM_GPU = 6      # com ajudante ativo o servidor pega lotes pequenos: o fim
 GPU_LOTE_MAX = 16
 
 _estado = {"rodando": False, "dia": None, "etapa": None, "erro": None}
+_completar = {"rodando": False, "dia": None, "faltam": None}   # sentimento das ligações analisadas antes dele
 _gpu = {}             # ajudante -> time.time() do último contato
 _native_mes = {}      # "AAAA-MM" -> (time.time(), {dia: {ligacoes, seg}}): cache do volume do mês no db_native
 _candidatos = [0.0, []]   # cache de dias_candidatos() para os pedidos dos ajudantes
@@ -57,7 +59,8 @@ _lock = threading.Lock()
 
 def estado():
     agora = time.time()
-    return dict(_estado, gpu={"ativa": gpu_ativa(), "ajudantes": {k: round(agora - t) for k, t in _gpu.items()}})
+    return dict(_estado, gpu={"ativa": gpu_ativa(), "ajudantes": {k: round(agora - t) for k, t in _gpu.items()}},
+                sentimento=dict(_completar))
 
 
 def gpu_ativa():
@@ -69,6 +72,7 @@ def avancar():
     """Garante o processo rodando. Devolve o que está acontecendo (não bloqueia)."""
     if not ia.configurado():
         return {"status": "erro", "erro": "sem a chave do Gemini: o nó do n8n precisa usar a credencial do Gemini"}
+    completar_sentimento()
     with _lock:
         if _estado["rodando"]:
             return {"status": "rodando", "dia": _estado["dia"]}
@@ -412,8 +416,8 @@ def andamento_mes():
 
 def resumo_dia(data, fila=None, agente=None, categoria=None, ligacoes=False):
     """Resultado de um dia do histórico, agregado (para o resumo pedido pelo ajudante): volumes, categorias, resultado,
-    satisfação, roteiro, regra do mudo (casos), por atendente, fila e hora. Texto só o já mascarado (justificativas).
-    fila/agente/categoria (LIKE, juntos com OU) recortam o dia — ex.: o suporte; `ligacoes` devolve também cada
+    satisfação, sentimento (com a confiança e os motivos), roteiro, regra do mudo (casos), por atendente, fila e hora.
+    Texto só o já mascarado (justificativas). fila/agente/categoria (LIKE, juntos com OU) recortam o dia — ex.: o suporte; `ligacoes` devolve também cada
     ligação do recorte com o que a IA escreveu (sem a transcrição)."""
     partes, fp = [], []
     for campo, valor in (("fila", fila), ("agente", agente), ("categoria", categoria)):
@@ -440,7 +444,9 @@ def resumo_dia(data, fila=None, agente=None, categoria=None, ligacoes=False):
                 " AVG(espera_seg) espera_media_seg, AVG(silencio_pct) silencio_medio_pct, AVG(satisfacao_estimada) satisfacao,"
                 " SUM(risco_cancelamento) risco_cancelamento, SUM(religou_min IS NOT NULL) religou_2h,"
                 " SUM(desconexao='Origem') cliente_desligou, SUM(desconexao='Destino') atendente_desligou,"
-                " SUM(desconexao='Transferida') transferidas FROM conversa_ligacao WHERE data=%s")[0]
+                " SUM(desconexao='Transferida') transferidas, SUM(sentimento IS NOT NULL) com_sentimento,"
+                " AVG(sentimento_confianca) sentimento_confianca_media, SUM(sentimento_confianca=100) sentimento_100,"
+                " SUM(sentimento_confianca<100) sentimento_abaixo_100 FROM conversa_ligacao WHERE data=%s")[0]
         por = {}
         for campo in ("categoria", "resolvido", "sentimento_inicio", "sentimento_fim", "satisfacao_estimada", "regra_mudo",
                       "modelo_stt"):
@@ -451,12 +457,29 @@ def resumo_dia(data, fila=None, agente=None, categoria=None, ligacoes=False):
                                      " SUM(risco_cancelamento) risco FROM conversa_ligacao WHERE data=%s" + cliente
                                      + " GROUP BY categoria ORDER BY n DESC")
         por["sentimento"] = q("SELECT sentimento_inicio inicio, sentimento_fim fim, COUNT(*) n FROM conversa_ligacao"
-                              " WHERE data=%s" + cliente + " GROUP BY inicio, fim ORDER BY n DESC")
+                              " WHERE data=%s" + cliente + " GROUP BY sentimento_inicio, sentimento_fim ORDER BY n DESC")
+        # Toda ligação conta (as sem análise têm o padrão neutro com confiança 0 e o motivo)
+        por["sentimento_geral"] = q("SELECT sentimento valor, COUNT(*) n, AVG(sentimento_confianca) confianca,"
+                                    " SUM(sentimento_confianca=100) certeza_total FROM conversa_ligacao WHERE data=%s"
+                                    " GROUP BY sentimento ORDER BY n DESC")
+        por["sentimento_confianca"] = q("SELECT CASE WHEN sentimento_confianca=100 THEN '100'"
+                                        " WHEN sentimento_confianca>=90 THEN '90-99' WHEN sentimento_confianca>=70 THEN '70-89'"
+                                        " WHEN sentimento_confianca>=40 THEN '40-69' WHEN sentimento_confianca IS NOT NULL"
+                                        " THEN '0-39' END faixa, COUNT(*) n FROM conversa_ligacao WHERE data=%s"
+                                        " GROUP BY faixa ORDER BY MIN(sentimento_confianca) DESC")
+        motivos = {}
+        for r in q("SELECT sentimento_motivos FROM conversa_ligacao WHERE data=%s AND sentimento_motivos IS NOT NULL"):
+            for m in {m.get("motivo") for m in json.loads(r["sentimento_motivos"]) or []}:  # uma vez por ligação
+                motivos[m] = motivos.get(m, 0) + 1
+        nomes = {**ia.MOTIVOS_SENTIMENTO, **ia.MOTIVOS_SERVIDOR}
+        por["sentimento_motivos"] = [{"motivo": m, "descricao": nomes.get(m, m), "ligacoes": n}
+                                     for m, n in sorted(motivos.items(), key=lambda kv: -kv[1])]
         por["motivos"] = q("SELECT motivo, COUNT(*) n FROM conversa_ligacao WHERE data=%s" + cliente
                            + " GROUP BY motivo ORDER BY n DESC LIMIT 20")
         por["agente"] = q("SELECT agente, COUNT(*) n, AVG(atendimento_seg) tma_seg, AVG(satisfacao_estimada) satisfacao,"
                           " SUM(resolvido='sim') resolvidas, SUM(resolvido='nao') nao_resolvidas,"
-                          " SUM(sentimento_fim='negativo') terminou_negativo, SUM(risco_cancelamento) risco,"
+                          " SUM(sentimento_fim='negativo') terminou_negativo, SUM(sentimento='negativo') sentimento_negativo,"
+                          " AVG(sentimento_confianca) sentimento_confianca, SUM(risco_cancelamento) risco,"
                           " SUM(regra_mudo='sim') mudo_sim, SUM(regra_mudo='inconclusivo') mudo_inconclusivo,"
                           " SUM(religou_min IS NOT NULL) religou_2h, AVG(silencio_pct) silencio_pct"
                           " FROM conversa_ligacao WHERE data=%s" + cliente + " GROUP BY agente ORDER BY n DESC")
@@ -476,7 +499,8 @@ def resumo_dia(data, fila=None, agente=None, categoria=None, ligacoes=False):
                 c["sim"] += bool(v)
         lista = q("SELECT protocolo, TIME(data_hora) hora, agente, fila, sentido, espera_seg, atendimento_seg seg,"
                   " desconexao, religou_min, silencio_pct, maior_silencio, ligacao_interna, categoria, motivo, resolvido,"
-                  " sentimento_inicio, sentimento_fim, satisfacao_estimada, risco_cancelamento, regra_mudo, resumo,"
+                  " sentimento_inicio, sentimento_fim, sentimento, sentimento_confianca, sentimento_motivos,"
+                  " satisfacao_estimada, risco_cancelamento, regra_mudo, resumo,"
                   " pontos_atencao, palavras_chave, roteiro, cadeia, ia_confianca FROM conversa_ligacao"
                   " WHERE data=%s AND ia_em IS NOT NULL ORDER BY data_hora") if ligacoes and filtro else None
     return {"data": data, "filtro": {"fila": fila, "agente": agente, "categoria": categoria}, "dia": dia[0] if dia else None,
@@ -552,12 +576,15 @@ def _regras(con, data):
         cur.executemany("UPDATE conversa_ligacao SET marcas=%s, peso=%s, cadeia=%s WHERE protocolo=%s", linhas)
 
 
-def _ia(con, data):
-    """Análise da IA de cada ligação transcrita do dia (em paralelo, com espera quando o Gemini sobrecarrega)."""
+def _ia(con, data, so_sentimento=False, paralelo=IA_PARALELO):
+    """Análise da IA de cada ligação transcrita do dia (em paralelo, com espera quando o Gemini sobrecarrega).
+    so_sentimento: só o sentimento das ligações já analisadas antes de ele existir (o resto da análise fica)."""
+    onde = ("transcricao IS NOT NULL AND ia_em IS NOT NULL AND sentimento_confianca IS NULL" if so_sentimento
+            else "etapa='transcrita'")
     with con.cursor() as cur:
         cur.execute("SELECT protocolo, data_hora, agente, fila, espera_seg, atendimento_seg, duracao_audio, desconexao,"
-                    " religou_min, marcas, cadeia, transcricao FROM conversa_ligacao"
-                    " WHERE data=%s AND etapa='transcrita'", (data,))
+                    " religou_min, marcas, cadeia, transcricao, modelo_stt FROM conversa_ligacao"
+                    f" WHERE data=%s AND {onde}", (data,))
         itens = cur.fetchall()
     trava = threading.Lock()
 
@@ -565,28 +592,87 @@ def _ia(con, data):
         l = dict(r, segmentos=json.loads(r["transcricao"] or "[]"), marcas=json.loads(r["marcas"] or "[]"),
                  cadeia=json.loads(r["cadeia"]) if r["cadeia"] else None)
         try:
-            x, modelo = ia.analisar(l)
+            x, modelo = ia.analisar(l, so_sentimento)
             x = regras.mascarar_obj(x)  # o Gemini pode copiar números da transcrição
-            rot = x.get("roteiro") or {}
-            args = (x.get("resumo"), (x.get("motivo_contato") or "")[:255], x.get("categoria"), x.get("resolvido"),
-                    x.get("sentimento_inicio"), x.get("sentimento_fim"), x.get("satisfacao_estimada"),
-                    int(bool(x.get("risco_cancelamento"))), int(bool(x.get("ligacao_interna"))), x.get("regra_mudo"),
-                    x.get("regra_mudo_justificativa"), json.dumps(rot, ensure_ascii=False), x.get("pontos_atencao"),
-                    json.dumps(x.get("palavras_chave") or [], ensure_ascii=False), x.get("confianca"),
-                    json.dumps(x, ensure_ascii=False), modelo, r["protocolo"])
-            q = ("UPDATE conversa_ligacao SET resumo=%s, motivo=%s, categoria=%s, resolvido=%s, sentimento_inicio=%s,"
-                 " sentimento_fim=%s, satisfacao_estimada=%s, risco_cancelamento=%s, ligacao_interna=%s, regra_mudo=%s,"
-                 " regra_mudo_justificativa=%s, roteiro=%s, pontos_atencao=%s, palavras_chave=%s, ia_confianca=%s,"
-                 " ia_json=%s, ia_modelo=%s, ia_em=NOW(), ia_erro=NULL, status=2, etapa='pronto', fim=NOW()"
-                 " WHERE protocolo=%s")
+            sent = (x["sentimento_inicio"], x["sentimento_fim"], x["sentimento"], x["sentimento_confianca"],
+                    json.dumps(x["sentimento_motivos"], ensure_ascii=False))
+            if so_sentimento:
+                q, args = ("UPDATE conversa_ligacao SET sentimento_inicio=%s, sentimento_fim=%s, sentimento=%s,"
+                           " sentimento_confianca=%s, sentimento_motivos=%s WHERE protocolo=%s", (*sent, r["protocolo"]))
+            else:
+                rot = x.get("roteiro") or {}
+                args = (x.get("resumo"), (x.get("motivo_contato") or "")[:255], x.get("categoria"), x.get("resolvido"),
+                        *sent, x.get("satisfacao_estimada"),
+                        int(bool(x.get("risco_cancelamento"))), int(bool(x.get("ligacao_interna"))), x.get("regra_mudo"),
+                        x.get("regra_mudo_justificativa"), json.dumps(rot, ensure_ascii=False), x.get("pontos_atencao"),
+                        json.dumps(x.get("palavras_chave") or [], ensure_ascii=False), x.get("confianca"),
+                        json.dumps(x, ensure_ascii=False), modelo, r["protocolo"])
+                q = ("UPDATE conversa_ligacao SET resumo=%s, motivo=%s, categoria=%s, resolvido=%s, sentimento_inicio=%s,"
+                     " sentimento_fim=%s, sentimento=%s, sentimento_confianca=%s, sentimento_motivos=%s,"
+                     " satisfacao_estimada=%s, risco_cancelamento=%s, ligacao_interna=%s, regra_mudo=%s,"
+                     " regra_mudo_justificativa=%s, roteiro=%s, pontos_atencao=%s, palavras_chave=%s, ia_confianca=%s,"
+                     " ia_json=%s, ia_modelo=%s, ia_em=NOW(), ia_erro=NULL, status=2, etapa='pronto', fim=NOW()"
+                     " WHERE protocolo=%s")
         except Exception as e:  # noqa: BLE001 - fica registrado; POST /historico/reavaliar tenta de novo
+            if so_sentimento:  # a análise que já existe continua valendo; fica para a próxima passada
+                log.warning("sentimento de %s: %s", r["protocolo"], str(e)[:200])
+                return
             q, args = ("UPDATE conversa_ligacao SET ia_erro=%s, status=2, etapa='pronto', fim=NOW() WHERE protocolo=%s",
                        (str(e)[:500], r["protocolo"]))
         with trava, con.cursor() as cur:  # uma conexão só: as threads se revezam
             cur.execute(q, args)
 
-    with ThreadPoolExecutor(IA_PARALELO) as ex:
+    with ThreadPoolExecutor(paralelo) as ex:
         list(ex.map(um, itens))
+    _sentimento_sem_ia(con, data)
+
+
+def _sentimento_sem_ia(con, data):
+    """Toda ligação tem sentimento: as que ficaram sem análise (sem gravação, transcrição ou IA que falhou) recebem o
+    padrão neutro com confiança 0 e o motivo explícito. Se a IA analisar depois (reavaliar), vale o dela."""
+    motivo = ("CASE WHEN gravacao IS NULL OR erro LIKE '%%grava%%' THEN 'sem_gravacao'"
+              " WHEN transcricao IS NULL THEN 'sem_transcricao' ELSE 'ia_falhou' END")
+    detalhe = ("CASE WHEN gravacao IS NULL THEN %s WHEN erro LIKE '%%grava%%' THEN CONCAT(%s, ' (', LEFT(erro, 200), ')')"
+               " WHEN transcricao IS NULL THEN CONCAT(%s, ' (', LEFT(IFNULL(erro, '?'), 200), ')')"
+               " ELSE CONCAT(%s, ' (', LEFT(ia_erro, 200), ')') END")
+    with con.cursor() as cur:
+        cur.execute("UPDATE conversa_ligacao SET sentimento='neutro', sentimento_inicio='neutro', sentimento_fim='neutro',"
+                    " sentimento_confianca=0,"
+                    f" sentimento_motivos=JSON_ARRAY(JSON_OBJECT('motivo', {motivo}, 'detalhe', {detalhe}))"
+                    " WHERE data=%s AND status=2 AND (transcricao IS NULL OR ia_erro IS NOT NULL)"
+                    " AND (sentimento IS NULL OR sentimento_confianca=0)",
+                    (ia.MOTIVOS_SERVIDOR["sem_gravacao"], ia.MOTIVOS_SERVIDOR["sem_gravacao"], ia.MOTIVOS_SERVIDOR["sem_transcricao"],
+                     ia.MOTIVOS_SERVIDOR["ia_falhou"], data))
+
+
+def completar_sentimento():
+    """Em segundo plano: dá sentimento (com confiança e motivos) às ligações dos dias prontos antes de ele existir.
+    Cada chamada do n8n (avancar) começa uma passada se não houver uma rodando; o que falhar fica para a próxima."""
+    with _lock:
+        if _completar["rodando"]:
+            return
+        _completar.update(rodando=True, dia=None, faltam=None)
+
+    def rodar():
+        con = db.app()
+        try:
+            with con.cursor() as cur:
+                cur.execute("SELECT l.data, COUNT(*) n FROM conversa_ligacao l JOIN conversa_dia d ON d.data=l.data"
+                            " WHERE d.status=2 AND d.etapa='pronto' AND l.status=2 AND l.sentimento_confianca IS NULL"
+                            " GROUP BY l.data ORDER BY l.data")
+                dias = [(str(r["data"]), r["n"]) for r in cur.fetchall()]
+            _completar["faltam"] = sum(n for _, n in dias)
+            for d, n in dias:
+                _completar["dia"] = d
+                _ia(con, d, so_sentimento=True, paralelo=SENTIMENTO_PARALELO)
+                _completar["faltam"] -= n
+                log.info("%s: sentimento completado", d)
+        except Exception:  # noqa: BLE001 - o próximo início do processo continua de onde parou
+            log.exception("completar o sentimento parou")
+        finally:
+            con.close()
+            _completar.update(rodando=False, dia=None)
+    threading.Thread(target=rodar, daemon=True, name="historico-sentimento").start()
 
 
 def reavaliar(data=None):
