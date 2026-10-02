@@ -410,11 +410,24 @@ def andamento_mes():
     return {"agora": agora, "mes": mes, "estado": estado(), "dias": out, "modelos": modelos}
 
 
-def resumo_dia(data):
+def resumo_dia(data, fila=None, agente=None, categoria=None, ligacoes=False):
     """Resultado de um dia do histórico, agregado (para o resumo pedido pelo ajudante): volumes, categorias, resultado,
-    satisfação, roteiro, regra do mudo (casos), por atendente, fila e hora. Texto só o já mascarado (justificativas)."""
+    satisfação, roteiro, regra do mudo (casos), por atendente, fila e hora. Texto só o já mascarado (justificativas).
+    fila/agente/categoria (LIKE, juntos com OU) recortam o dia — ex.: o suporte; `ligacoes` devolve também cada
+    ligação do recorte com o que a IA escreveu (sem a transcrição)."""
+    partes, fp = [], []
+    for campo, valor in (("fila", fila), ("agente", agente), ("categoria", categoria)):
+        if valor:
+            partes.append(f"{campo} LIKE %s")
+            fp.append(valor)
+    filtro = f" AND ({' OR '.join(partes)})" if partes else ""
+
     def q(sql, a=()):
-        cur.execute(sql, (data, *a))
+        if "FROM conversa_ligacao WHERE data=%s" in sql:
+            sql = sql.replace("FROM conversa_ligacao WHERE data=%s", "FROM conversa_ligacao WHERE data=%s" + filtro, 1)
+            cur.execute(sql, (data, *fp, *a))
+        else:
+            cur.execute(sql, (data, *a))
         return [{k: float(v) if isinstance(v, decimal.Decimal) else str(v) if isinstance(v, (dt.date, dt.timedelta))
                  else v for k, v in r.items()} for r in cur.fetchall()]
 
@@ -455,14 +468,19 @@ def resumo_dia(data):
         mudo = q("SELECT protocolo, TIME(data_hora) hora, agente, fila, atendimento_seg seg, desconexao, religou_min,"
                  " peso, regra_mudo, regra_mudo_justificativa justificativa, ia_confianca FROM conversa_ligacao"
                  " WHERE data=%s AND regra_mudo IN ('sim','inconclusivo') ORDER BY regra_mudo DESC, peso DESC")
-        cur.execute("SELECT roteiro FROM conversa_ligacao WHERE data=%s" + cliente + " AND roteiro IS NOT NULL", (data,))
         roteiro = {}
-        for r in cur.fetchall():
+        for r in q("SELECT roteiro FROM conversa_ligacao WHERE data=%s" + cliente + " AND roteiro IS NOT NULL"):
             for k, v in (json.loads(r["roteiro"]) or {}).items():
                 c = roteiro.setdefault(k, {"sim": 0, "total": 0})
                 c["total"] += 1
                 c["sim"] += bool(v)
-    return {"data": data, "dia": dia[0] if dia else None, "totais": tot, "por": por, "roteiro": roteiro, "mudo": mudo}
+        lista = q("SELECT protocolo, TIME(data_hora) hora, agente, fila, sentido, espera_seg, atendimento_seg seg,"
+                  " desconexao, religou_min, silencio_pct, maior_silencio, ligacao_interna, categoria, motivo, resolvido,"
+                  " sentimento_inicio, sentimento_fim, satisfacao_estimada, risco_cancelamento, regra_mudo, resumo,"
+                  " pontos_atencao, palavras_chave, roteiro, cadeia, ia_confianca FROM conversa_ligacao"
+                  " WHERE data=%s AND ia_em IS NOT NULL ORDER BY data_hora") if ligacoes and filtro else None
+    return {"data": data, "filtro": {"fila": fila, "agente": agente, "categoria": categoria}, "dia": dia[0] if dia else None,
+            "totais": tot, "por": por, "roteiro": roteiro, "mudo": mudo, "ligacoes": lista}
 
 
 def gpu_pedido(p):
@@ -471,7 +489,7 @@ def gpu_pedido(p):
     if p["acao"] == "andamento":
         return andamento_mes()
     if p["acao"] == "resumo":
-        return resumo_dia(p["data"])
+        return resumo_dia(p["data"], p.get("fila"), p.get("agente"), p.get("categoria"), bool(p.get("ligacoes")))
     _gpu[p["worker"]] = time.time()
     with db.app() as con, con.cursor() as cur:
         if p["acao"] == "vivo":
