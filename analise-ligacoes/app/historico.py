@@ -156,13 +156,15 @@ def _registrar(con, data):
 
 def _dias_adiantados(con, data, maximo=ADIANTAR_DIAS):
     """Os próximos dias depois de `data` que ainda não estão prontos, registrados na hora em que são pedidos (para os
-    ajudantes adiantarem); no máximo `maximo` dias à frente."""
+    ajudantes adiantarem); no máximo `maximo` dias à frente. Dias prontos ou sem gravação não contam."""
     if time.time() - _candidatos[0] > 600:
         _candidatos[:] = [time.time(), dias_candidatos()]
     with con.cursor() as cur:
         cur.execute("SELECT data, status, total FROM conversa_dia WHERE data > %s", (data,))
         dias = {str(r["data"]): r for r in cur.fetchall()}
-    for d in [d for d in _candidatos[1] if d > data][:maximo]:
+    for d in (d for d in _candidatos[1] if d > data):
+        if maximo <= 0:
+            return
         r = dias.get(d)
         if r and r["status"] == 2:
             continue
@@ -170,6 +172,7 @@ def _dias_adiantados(con, data, maximo=ADIANTAR_DIAS):
             with _adiantar_lock:  # dois pedidos ao mesmo tempo não registram o mesmo dia duas vezes
                 if _registrar(con, d) is None:
                     continue  # gravações apagadas: o dia fica indisponível
+        maximo -= 1
         yield d
 
 
