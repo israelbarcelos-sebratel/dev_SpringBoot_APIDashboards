@@ -536,7 +536,7 @@
     saveState({ lastMetrics: resp.data });
   }
 
-  /** Estado desta aba no background: true = fechado aqui, false = reaberto aqui, null = sem escolha. */
+  /** Estado desta aba no background: false = mostrar aqui, true = fechado aqui, null = nunca mandou mostrar. */
   function estadoDaAba() {
     return new Promise((resolve) => {
       if (!extensaoValida()) {
@@ -553,15 +553,26 @@
     });
   }
 
+  /** Consulta a API só enquanto o widget está à vista nesta aba. */
+  function ligar(el) {
+    if (timer) return;
+    timer = setInterval(() => refresh(el).catch(() => {}), REFRESH_MS);
+    refresh(el).catch(() => {});
+  }
+
+  function desligar() {
+    if (timer) clearInterval(timer);
+    timer = null;
+  }
+
   async function init() {
-    const [state, ocultoNaAba] = await Promise.all([loadState(), estadoDaAba()]);
+    const state = await loadState();
     const el = buildWidget();
     if (!el) return; // já existia (ex.: SPA re-injetando)
 
-    // Fechar/reabrir vale por aba; sem escolha nesta aba, segue "abrir automaticamente em novas
-    // abas" do popup (ligado por padrão).
-    const oculto = ocultoNaAba !== null ? ocultoNaAba : state.autoAbrir === false;
-    el.style.display = oculto ? "none" : "block";
+    // Só chega aqui numa aba em que a pessoa mandou mostrar (botão do popup).
+    el.style.display = "block";
+    el.querySelector(".close-btn").addEventListener("click", desligar);
     aplicarPin(el, state.pinned);
     if (state.left && state.top) {
       el.style.left = state.left;
@@ -587,8 +598,7 @@
       if (el.classList.contains("compacto")) irParaSecao(el, secaoSalva, false);
     }
 
-    timer = setInterval(() => refresh(el).catch(() => {}), REFRESH_MS);
-    refresh(el).catch(() => {});
+    ligar(el);
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local" || !changes[STORAGE_KEY]) return;
@@ -615,7 +625,7 @@
       }
     });
 
-    // "Mostrar nesta aba" do popup.
+    // "Mostrar nesta aba" do popup depois de fechar no X.
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg?.type !== "widgetMostrar") return;
       const escolhida = secaoAtual;
@@ -623,8 +633,23 @@
       ajustarAltura(el);
       if (el.classList.contains("compacto")) irParaSecao(el, escolhida, false);
       garantirVisivel(el);
+      ligar(el);
     });
   }
 
-  init();
+  // O widget só existe nas abas em que a pessoa clicou em "Mostrar" (vale para F5 e para trocar de
+  // URL na mesma aba; abas e janelas novas começam sem ele). Nas outras o script só espera esse
+  // pedido: não monta nada nem consulta a API.
+  let iniciado = false;
+  function iniciar() {
+    if (iniciado) return;
+    iniciado = true;
+    init();
+  }
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "widgetMostrar") iniciar();
+  });
+  estadoDaAba().then((oculto) => {
+    if (oculto === false) iniciar();
+  });
 })();

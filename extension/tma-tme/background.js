@@ -1,8 +1,8 @@
 importScripts("api.js");
 
-// Abas em que a pessoa fechou (true) ou reabriu pelo popup (false) o widget. Fica em
-// storage.session: vale para F5 e para a navegação dentro da mesma aba, some quando a aba (ou o
-// navegador) fecha — e fechar numa aba não fecha nas outras.
+// Abas em que a pessoa mandou mostrar (false) ou fechou (true) o widget; aba sem registro não tem
+// widget. Fica em storage.session: vale para F5 e para a navegação dentro da mesma aba, some quando
+// a aba (ou o navegador) fecha — e o que se faz numa aba não muda as outras.
 const ABAS_KEY = "widgetAbas";
 
 async function abas() {
@@ -27,7 +27,8 @@ async function injetar(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
-// Instalou/atualizou/recarregou a extensão: leva o widget às abas abertas, sem precisar de F5.
+// Instalou/atualizou/recarregou a extensão: leva o script às abas abertas, sem precisar de F5 (o
+// widget só aparece nas que estavam marcadas para mostrar).
 // Páginas do Chrome, da Web Store e PDFs recusam a injeção — ignoramos.
 chrome.runtime.onInstalled.addListener(async () => {
   const tabs = await chrome.tabs.query({});
@@ -44,7 +45,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
   if (msg?.type === "widgetAba") {
-    // Estado desta aba: true = fechado aqui, false = reaberto aqui, null = segue a preferência.
+    // Estado desta aba: false = mostrar, true = fechado aqui, null = nunca mandou mostrar (sem widget).
     const tabId = sender.tab?.id;
     if (tabId === undefined) {
       sendResponse({ oculto: null });
@@ -60,9 +61,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
   if (msg?.type === "widgetMostrar") {
-    // Vindo do popup: reabre só na aba informada.
+    // Vindo do popup: mostra só na aba informada.
     // Sem script vivo na aba (aberta antes da instalação/atualização), injeta na hora — ele já
-    // nasce visível porque a aba acabou de ser marcada como "reaberta".
+    // nasce visível porque a aba acabou de ser marcada para mostrar.
     marcarAba(msg.tabId, false)
       .then(() => chrome.tabs.sendMessage(msg.tabId, { type: "widgetMostrar" }).catch(() => injetar(msg.tabId)))
       .then(() => sendResponse({ ok: true }))
