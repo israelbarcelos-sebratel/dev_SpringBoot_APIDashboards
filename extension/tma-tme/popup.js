@@ -74,7 +74,7 @@ async function render() {
   $("support-details").open = semVinculo;
 
   const isAdmin = me.role === "admin";
-  $("admin-area").style.display = isAdmin ? "block" : "none";
+  for (const el of document.querySelectorAll(".admin-only")) el.style.display = isAdmin ? "block" : "none";
   const cfg = await SebratelApi.getConfig();
   if (isAdmin) {
     const nomes = await nativeReq("/ext/atendentes").catch(() => []);
@@ -84,7 +84,22 @@ async function render() {
   } else if (cfg.viewingAgent) {
     await SebratelApi.setConfig({ viewingAgent: "" });
   }
+  await atualizarBotaoAba();
   show("view-main");
+}
+
+/** Aba ativa e se o widget está à vista nela (false = mostrando, como no background). */
+async function abaAtual() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return { tab: null, mostrando: false };
+  const r = await chrome.runtime.sendMessage({ type: "widgetEstado", tabId: tab.id }).catch(() => null);
+  return { tab, mostrando: r?.oculto === false };
+}
+
+async function atualizarBotaoAba() {
+  const { mostrando } = await abaAtual();
+  $("show-btn").textContent = mostrando ? "Esconder widget nesta aba" : "Mostrar widget nesta aba";
+  $("show-btn").className = mostrando ? "btn btn-secondary" : "btn btn-primary";
 }
 
 $("login-btn").addEventListener("click", async () => {
@@ -169,9 +184,10 @@ $("detalhe-btn").addEventListener("click", () => {
 });
 
 $("show-btn").addEventListener("click", async () => {
-  // Reabre só na aba atual. Só fecha o popup depois da resposta: fechar antes interrompe o pedido.
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const resp = tab ? await chrome.runtime.sendMessage({ type: "widgetMostrar", tabId: tab.id }).catch(() => null) : null;
+  // Mostra ou esconde só na aba atual. Só fecha o popup depois da resposta: fechar antes interrompe o pedido.
+  const { tab, mostrando } = await abaAtual();
+  const tipo = mostrando ? "widgetEsconder" : "widgetMostrar";
+  const resp = tab ? await chrome.runtime.sendMessage({ type: tipo, tabId: tab.id }).catch(() => null) : null;
   if (!resp?.ok) {
     msg("Esta página não aceita o widget (páginas internas do Chrome, Web Store e PDFs).");
     return;

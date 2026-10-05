@@ -162,36 +162,21 @@
     </div>
 
     <div id="view-main" class="view">
-      <div class="card">
-        <div class="who-email" id="who-email"></div>
-        <table class="fields">
-          <tr><td>Atendente</td><td id="who-nomes"></td></tr>
-          <tr><td>Papel</td><td id="who-role"></td></tr>
-        </table>
-        <div id="pref-area" style="display:none; margin-top: 12px">
-          <label for="pref-select">Usar cadastro</label>
-          <select id="pref-select"></select>
-          <div id="pref-notice" class="notice" style="display:none">
-            Seu e-mail está em mais de um cadastro (por exemplo, se você trocou de área). Escolha qual usar — a escolha fica salva.
-          </div>
-        </div>
-        <div id="who-unbound" class="notice" style="display:none; margin: 10px 0 0">
-          Seu e-mail não foi encontrado nos atendimentos da Matrix, então o widget ainda não tem dados para mostrar.
-          Use o botão abaixo para pedir o vínculo ao administrador.
-        </div>
+      <!-- 1. Widget nesta aba -->
+      <button id="show-btn" class="btn btn-primary">Mostrar widget nesta aba</button>
+      <p class="dica">O widget fica só nas abas em que você mandar mostrar e continua nelas ao trocar de página.</p>
+
+      <!-- 2. Resumo -->
+      <button id="detalhe-btn" class="btn btn-secondary">Ver resumo dos últimos dias e atendimentos de hoje</button>
+
+      <!-- 3. Admin: ofensores por equipe -->
+      <div class="card admin-only" id="admin-ofensores" style="display:none">
+        <div class="section-marker">Equipe</div>
+        <button id="ofensores-btn" class="btn btn-secondary">Maiores ofensores de hoje (TME, TMA, TMEA)</button>
       </div>
 
-      <div class="card" id="support-card">
-        <details id="support-details">
-          <summary id="support-summary">Precisa de ajuste? Fale com seu administrador</summary>
-          <label for="support-text">Mensagem</label>
-          <textarea id="support-text" maxlength="2000" placeholder="Ex.: meu nome não aparece / o nome está errado."></textarea>
-          <button id="support-btn" class="btn btn-primary">Fale com seu administrador</button>
-          <p class="muted" style="margin:0">O pedido vai por e-mail para a equipe de desenvolvimento, que responde para você.</p>
-        </details>
-      </div>
-
-      <div class="card" id="admin-area" style="display:none">
+      <!-- 4. Admin: dados de uma pessoa (e cadastros) -->
+      <div class="card admin-only" id="admin-area" style="display:none">
         <div class="section-marker">Ver dados de</div>
         <select id="viewing-agent"></select>
 
@@ -207,16 +192,42 @@
         </select>
         <button id="mg-save" class="btn btn-secondary">Salvar usuário</button>
 
-        <div class="section-marker" style="margin-top:6px">Equipe</div>
-        <button id="ofensores-btn" class="btn btn-secondary">Maiores ofensores de hoje (TME, TMA, TMEA)</button>
-
         <div class="section-marker" style="margin-top:6px">Nomes Matrix ↔ Native</div>
         <button id="corr-btn" class="btn btn-secondary">Relacionar nomes Matrix ↔ Native</button>
       </div>
 
-      <button id="detalhe-btn" class="btn btn-secondary">Ver resumo dos últimos dias e atendimentos de hoje</button>
-      <button id="show-btn" class="btn btn-secondary">Mostrar widget nesta aba</button>
-      <p class="dica">O widget aparece só nas abas em que você clicar em “Mostrar” e continua nelas ao trocar de página. Para tirar de uma aba, use o × do widget.</p>
+      <!-- 5. Pedido de ajuda -->
+      <div class="card" id="support-card">
+        <details id="support-details">
+          <summary id="support-summary">Precisa de ajuste? Fale com seu administrador</summary>
+          <label for="support-text">Mensagem</label>
+          <textarea id="support-text" maxlength="2000" placeholder="Ex.: meu nome não aparece / o nome está errado."></textarea>
+          <button id="support-btn" class="btn btn-primary">Fale com seu administrador</button>
+          <p class="muted" style="margin:0">O pedido vai por e-mail para a equipe de desenvolvimento, que responde para você.</p>
+        </details>
+      </div>
+
+      <!-- 6. Conta -->
+      <div class="card">
+        <div class="section-marker">Sua conta</div>
+        <div class="who-email" id="who-email"></div>
+        <table class="fields">
+          <tr><td>Atendente</td><td id="who-nomes"></td></tr>
+          <tr><td>Papel</td><td id="who-role"></td></tr>
+        </table>
+        <div id="pref-area" style="display:none; margin-top: 12px">
+          <label for="pref-select">Usar cadastro</label>
+          <select id="pref-select"></select>
+          <div id="pref-notice" class="notice" style="display:none">
+            Seu e-mail está em mais de um cadastro (por exemplo, se você trocou de área). Escolha qual usar — a escolha fica salva.
+          </div>
+        </div>
+        <div id="who-unbound" class="notice" style="display:none; margin: 10px 0 0">
+          Seu e-mail não foi encontrado nos atendimentos da Matrix, então o widget ainda não tem dados para mostrar.
+          Use “Fale com seu administrador” acima para pedir o vínculo.
+        </div>
+      </div>
+
       <div class="footer-actions"><button id="logout-btn" class="btn btn-ghost">Sair</button></div>
     </div>
   </main>

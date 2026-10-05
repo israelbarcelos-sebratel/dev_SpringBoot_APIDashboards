@@ -625,7 +625,14 @@
       }
     });
 
-    // "Mostrar nesta aba" do popup depois de fechar no X.
+    // "Esconder widget nesta aba" do popup: o mesmo que o ×.
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg?.type !== "widgetEsconder") return;
+      el.style.display = "none";
+      desligar();
+    });
+
+    // "Mostrar nesta aba" do popup depois de fechar no × ou esconder.
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg?.type !== "widgetMostrar") return;
       const escolhida = secaoAtual;

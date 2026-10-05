@@ -56,6 +56,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => sendResponse({ oculto: null }));
     return true;
   }
+  if (msg?.type === "widgetEstado") {
+    // Vindo do popup: o widget está à vista na aba informada? (mesmo formato do widgetAba)
+    abas()
+      .then((a) => sendResponse({ oculto: msg.tabId in a ? a[msg.tabId] : null }))
+      .catch(() => sendResponse({ oculto: null }));
+    return true;
+  }
+  if (msg?.type === "widgetEsconder") {
+    // Vindo do popup: esconde só na aba informada (como o × do widget).
+    marcarAba(msg.tabId, true)
+      .then(() => chrome.tabs.sendMessage(msg.tabId, { type: "widgetEsconder" }).catch(() => {}))
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (msg?.type === "widgetFechar") {
     if (sender.tab?.id !== undefined) marcarAba(sender.tab.id, true).catch(() => {});
     return false;
