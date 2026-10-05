@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sebratel - TMA/TME Atendimento",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Widget flutuante com TMA e TME por atendente (Native e Matrix), com login Google e papéis de usuário comum e administrador.",
   "icons": {
     "16": "icons/icon16.png",

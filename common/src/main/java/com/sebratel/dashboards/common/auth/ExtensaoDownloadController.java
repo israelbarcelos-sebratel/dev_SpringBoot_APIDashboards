@@ -168,7 +168,7 @@ public class ExtensaoDownloadController {
               <div class="masthead"><img src="download/icone.png" alt=""><div><b>Sebratel</b><span> &middot; TMA/TME</span></div></div>
               <div class="content">
                 <h1>Extensão TMA/TME para o Chrome</h1>
-                <p>Mostra o seu TMA/TME <b>do dia</b> (Native e Matrix) num widget flutuante em qualquer página.
+                <p>Mostra o seu TMA/TME <b>do dia</b> (Native e Matrix) num widget flutuante, <b>nas abas em que você escolher</b>.
                    O login é com a sua conta Google <b>@sebratel.com.br</b> e o seu atendente é reconhecido pelo e-mail.</p>
                 <p><a class="btn" href="download/tma-tme-extensao.zip">Baixar extensão (versão {{VERSAO}})</a></p>
 
@@ -182,9 +182,15 @@ public class ExtensaoDownloadController {
                   <li>Fixe o ícone da extensão (quebra-cabeça &rarr; alfinete), clique nele e em <b>Entrar com Google</b>.</li>
                 </ol>
 
+                <div class="marker">Como usar</div>
+                <p>O widget <b>só aparece nas abas em que você pedir</b>: na aba desejada, clique no ícone da extensão e em
+                   <b>Mostrar widget nesta aba</b>. Ele continua nessa aba quando você troca de página ou dá F5; abas e janelas
+                   novas começam sem ele. Para tirar de uma aba, clique no <b>&times;</b> do widget.</p>
+
                 <div class="marker">Como atualizar</div>
                 <p>Baixe de novo, substitua o conteúdo da pasta <code>tma-tme-extensao</code> e clique em recarregar (&#8635;)
-                   no card da extensão em <code>chrome://extensions</code>. Depois, dê F5 nas abas abertas.</p>
+                   no card da extensão em <code>chrome://extensions</code>. Depois, clique em <b>Mostrar widget nesta aba</b>
+                   nas abas em que quiser o widget de volta.</p>
 
                 <div class="notice">Seu nome não apareceu ou está errado? Use <b>Fale com seu administrador</b> no popup da extensão.</div>
                 <p class="muted" style="margin-top:16px">O Chrome pode mostrar um aviso sobre extensões no modo desenvolvedor — é esperado

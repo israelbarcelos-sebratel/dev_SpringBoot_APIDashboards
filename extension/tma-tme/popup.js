@@ -179,15 +179,10 @@ $("show-btn").addEventListener("click", async () => {
   window.close();
 });
 
-// Preferência global: abrir o widget sozinho em abas novas (fechar numa aba continua valendo só nela).
+// O widget é por aba: sem preferência global (as antigas "hidden" e "autoAbrir" saem do estado).
 chrome.storage.local.get(["sebratelWidgetState"], (r) => {
-  $("auto-abrir").checked = (r.sebratelWidgetState || {}).autoAbrir !== false;
-});
-$("auto-abrir").addEventListener("change", async (e) => {
-  const r = await chrome.storage.local.get(["sebratelWidgetState"]);
-  const { hidden, ...estado } = r.sebratelWidgetState || {}; // "hidden" global antigo não vale mais
-  await chrome.storage.local.set({ sebratelWidgetState: { ...estado, autoAbrir: e.target.checked } });
-  msg(e.target.checked ? "O widget vai abrir sozinho em novas abas." : "O widget só abre nas abas em que você mandar mostrar.", "ok");
+  const { hidden, autoAbrir, ...estado } = r.sebratelWidgetState || {};
+  if (hidden !== undefined || autoAbrir !== undefined) chrome.storage.local.set({ sebratelWidgetState: estado });
 });
 
 $("logout-btn").addEventListener("click", async () => {
