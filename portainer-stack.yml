@@ -98,10 +98,8 @@ services:
       DB_PASSWORD: "${DB_PASSWORD}"
       <<: [*app-db-env, *mail-env]
       ADMIN_EMAILS: "${ADMIN_EMAILS:-}"
-      # Planilha da equipe do suporte (turno e supervisor): o n8n (n8n/equipe-suporte.json) envia uma vez por dia
-      # para http://native-api:8092/interno/equipe com este token no header X-Equipe-Token. Vazio = desligado.
-      EQUIPE_TOKEN: "${EQUIPE_TOKEN:-}"
-    # Rede do n8n: o fluxo da planilha chama a API pelo nome, sem passar pela porta publicada.
+    # Rede do n8n: o fluxo da planilha da equipe do suporte (n8n/equipe-suporte.json) chama
+    # http://native-api:8093/interno/equipe uma vez por dia. A 8093 fica de propósito fora de "ports".
     networks:
       - default
       - n8n

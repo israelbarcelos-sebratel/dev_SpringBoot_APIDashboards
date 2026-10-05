@@ -66,9 +66,7 @@
     {
       "parameters": {
         "method": "PUT",
-        "url": "http://native-api:8092/interno/equipe",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "url": "http://native-api:8093/interno/equipe",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json.linhas) }}",

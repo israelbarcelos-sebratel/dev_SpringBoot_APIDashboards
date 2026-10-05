@@ -1,13 +1,9 @@
 package com.sebratel.dashboards.common.auth;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -18,8 +14,8 @@ import java.util.Map;
 /**
  * {@code PUT /interno/equipe}: n8n sends, once a day, every row of the support team sheet
  * ({@code n8n/equipe-suporte.json}) and they replace the {@link EquipePlanilha} table. Outside
- * {@code /ext/**} (no Google login): protected by the {@code X-Equipe-Token} header, the same value as
- * {@code EQUIPE_TOKEN} in the stack (empty = endpoint off).
+ * {@code /ext/**} (no Google login): only answers on the internal port, which the stack doesn't publish
+ * (see {@link com.sebratel.dashboards.common.web.PortaInterna}).
  *
  * <p>Body: the sheet rows as JSON objects keyed by the header ("Colaborador", "Horários Inicio",
  * "Horário Fim", "Supervisor(a)", "Turno"); headers are matched ignoring accents and case, so small
@@ -30,22 +26,13 @@ import java.util.Map;
 public class EquipeController {
 
     private final EquipePlanilha equipe;
-    private final byte[] token;
 
-    public EquipeController(EquipePlanilha equipe, @Value("${app.equipe.token:}") String token) {
+    public EquipeController(EquipePlanilha equipe) {
         this.equipe = equipe;
-        this.token = token.getBytes(StandardCharsets.UTF_8);
     }
 
     @PutMapping("/interno/equipe")
-    public Map<String, Object> substituir(@RequestHeader(value = "X-Equipe-Token", defaultValue = "") String recebido,
-                                          @RequestBody List<Map<String, Object>> linhas) {
-        if (token.length == 0) {
-            throw new AuthException(503, "Equipe desligada: defina EQUIPE_TOKEN na stack.");
-        }
-        if (!MessageDigest.isEqual(token, recebido.getBytes(StandardCharsets.UTF_8))) {
-            throw new AuthException(401, "Token inválido.");
-        }
+    public Map<String, Object> substituir(@RequestBody List<Map<String, Object>> linhas) {
         Map<String, EquipePlanilha.Pessoa> pessoas = new LinkedHashMap<>(); // nome -> última linha (sem duplicar)
         for (Map<String, Object> linha : linhas) {
             Map<String, String> c = new LinkedHashMap<>();
