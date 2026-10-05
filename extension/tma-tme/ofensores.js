@@ -29,6 +29,8 @@ const dados = {}; // "periodo:sistema" -> resposta ou { erro }
 let correspondencia = null;
 /** Linhas abertas (▸) na aba Pausas, por nome: continuam abertas quando os dados se atualizam. */
 const expandidos = new Set();
+/** Tipos de pausa abertos (▸) no card "Pausas por tipo", pelo nome do tipo. */
+const tiposAbertos = new Set();
 /** Atualização automática que chegou enquanto a pessoa mexia num filtro: aplicada quando ela sair dele. */
 let redesenhoPendente = false;
 let ultimaCarga = 0;
@@ -621,13 +623,118 @@ function cardGolpes(resp) {
   return card;
 }
 
+/** Valor do percentil `p` (0–1) de uma lista já ordenada. */
+const percentil = (v, p) => (v.length ? v[Math.min(v.length - 1, Math.floor(v.length * p))] : 0);
+
+/** Mínimo de pessoas com o tipo de pausa para comparar alguém com o grupo. */
+const MIN_GRUPO_TIPO = 5;
+
+/** Medidas de cada pessoa num tipo de pausa (valores por dia trabalhado, como na tabela de atendentes). */
+const MEDIDAS_TIPO = [
+  { chave: "porDia", nome: "Tempo/dia", curto: "Tempo por dia" },
+  { chave: "vezes", nome: "Vezes/dia", curto: "Muitas vezes" },
+  { chave: "media", nome: "Média", curto: "Pausas longas" },
+  { chave: "acima", nome: "Acima do previsto", curto: "Estoura o previsto" },
+];
+
+/**
+ * Outliers de cada tipo de pausa, entre os atendentes nos filtros (setor, turno, supervisão e mínimo de
+ * atendimentos) que tiveram esse tipo. Mesma regra dos alertas da tabela: pelo menos 2× a mediana do
+ * grupo E entre os 10% mais altos, em alguma das MEDIDAS_TIPO (% acima do previsto só com 3+ pausas).
+ * -> tipo -> { n, mediana: {medida: valor}, pessoas: [{ a, t, v, fora: Set(medida) }] } (só quem se destaca).
+ */
+function outliersPorTipo(resp) {
+  const porTipo = {};
+  for (const a of resp.atendentes) {
+    if (a.dados.atendimentos < minimo() || !noFiltro(a)) continue;
+    const d = Math.max(1, a.dados.dias);
+    for (const [tipo, t] of Object.entries(a.dados.porTipo || {})) {
+      if (!t.qtd) continue;
+      const v = {
+        porDia: t.segundos / d,
+        vezes: t.qtd / d,
+        media: t.segundos ? t.segundos / t.qtd : null,
+        acima: t.previsto && t.qtd >= 3 ? (100 * t.excedidas) / t.qtd : null,
+      };
+      (porTipo[tipo] ||= []).push({ a, t, v, fora: new Set() });
+    }
+  }
+  const out = {};
+  for (const [tipo, lista] of Object.entries(porTipo)) {
+    const med = {};
+    for (const m of MEDIDAS_TIPO) {
+      const v = lista.map((p) => p.v[m.chave]).filter(Number.isFinite).sort((x, y) => x - y);
+      med[m.chave] = v.length ? mediana(v) : null;
+      if (v.length < MIN_GRUPO_TIPO) continue;
+      const p90 = percentil(v, 0.9);
+      for (const p of lista) {
+        const x = p.v[m.chave];
+        if (Number.isFinite(x) && x > 0 && x >= 2 * med[m.chave] && x >= p90) p.fora.add(m.chave);
+      }
+    }
+    out[tipo] = {
+      n: lista.length,
+      mediana: med,
+      pessoas: lista.filter((p) => p.fora.size).sort((x, y) => y.fora.size - x.fora.size || y.v.porDia - x.v.porDia),
+    };
+  }
+  return out;
+}
+
+/** Linha aberta embaixo de um tipo de pausa: quem se destaca do grupo nesse tipo. */
+function detalheTipo(resp, tipo, o, ncols) {
+  const medidas = MEDIDAS_TIPO.filter((m) => resp.indicadores.previsto || m.chave !== "acima");
+  const um = (v) => v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+  const texto = { porDia: fmt, vezes: um, media: fmt, acima: (v) => `${Math.round(v)}%` };
+  const col = el("div", { class: "detalhe-col" });
+  if (!o || o.n < MIN_GRUPO_TIPO) {
+    col.append(el("p", { class: "muted", text: `Só ${o ? o.n : 0} pessoa(s) nos filtros com “${tipo}”: poucas para comparar com o grupo (mínimo ${MIN_GRUPO_TIPO}).` }));
+  } else {
+    const medTxt = medidas.map((m) => `${m.nome.toLowerCase()} ${Number.isFinite(o.mediana[m.chave]) ? texto[m.chave](o.mediana[m.chave]) : "—"}`).join(" · ");
+    col.append(el("div", {},
+      el("h4", { text: o.pessoas.length ? `Outliers em “${tipo}” (${o.pessoas.length} de ${o.n})` : `Ninguém se destaca em “${tipo}”` }),
+      el("p", { class: "muted", style: "margin:0 0 6px", text: `Comparados com as ${o.n} pessoas nos filtros que tiveram essa pausa, `
+        + `${prefs.periodoNova === "hoje" ? "hoje" : "por dia trabalhado"}. Outlier: pelo menos 2× a mediana do grupo e entre os 10% mais altos. `
+        + `Mediana do grupo: ${medTxt}.` })));
+    if (o.pessoas.length) {
+      const tbody = el("tbody", {}, ...o.pessoas.map((p) => {
+        const [pessoa, setor] = separarSetor(p.a);
+        const nome = el("div", { class: "link", role: "link", tabindex: "0", title: `${p.a.nome}\nAbrir os atendimentos de hoje dessa pessoa` },
+          el("span", { class: "pessoa", text: pessoa }), setor ? el("span", { class: "setor", text: setor }) : null);
+        nome.addEventListener("click", () => abrirDetalhe(p.a.nome));
+        const totais = {
+          porDia: `${horasFmt(p.t.segundos)} no período`,
+          vezes: `${p.t.qtd} pausa(s) em ${p.a.dados.dias} dia(s)`,
+          media: `${p.t.qtd} pausa(s), ${horasFmt(p.t.segundos)} no total`,
+          acima: p.t.previsto ? `${p.t.excedidas} de ${p.t.qtd} acima do previsto (${fmt(p.t.previsto)})` : "Sem tempo previsto",
+        };
+        return el("tr", {},
+          el("td", {}, nome),
+          ...medidas.map((m) => {
+            const v = p.v[m.chave];
+            return el("td", { class: p.fora.has(m.chave) ? "fora" : "", title: totais[m.chave], text: Number.isFinite(v) ? texto[m.chave](v) : "—" });
+          }),
+          el("td", {}, el("div", { class: "alertas" },
+            ...medidas.filter((m) => p.fora.has(m.chave)).map((m) => el("span", { class: "alerta-tag", text: m.curto })))));
+      }));
+      col.append(el("table", { class: "mini outliers" },
+        el("thead", {}, el("tr", {}, ...["Atendente", ...medidas.map((m) => m.nome), "Por quê"].map((c) => el("th", { text: c })))),
+        tbody));
+    }
+  }
+  return el("tr", { class: "detalhe" }, el("td", { colspan: String(ncols) }, el("div", { class: "detalhe-grid" }, col)));
+}
+
 function cardTipos(resp) {
   const card = el("div", { class: "card pausas" },
     el("div", { class: "rank-head" }, el("div", { class: "section-marker", text: "Pausas por tipo" }),
-      el("div", { class: "muted", text: "todos os atendentes do sistema no período" })));
+      el("div", { class: "muted", text: "totais: todos os atendentes do sistema no período · ▸ outliers: entre quem está nos filtros" })));
   const prev = resp.indicadores.previsto;
+  const outliers = outliersPorTipo(resp);
+  const comparavel = (o) => o && o.n >= MIN_GRUPO_TIPO;
   const acimaPct = (x) => (x.previsto && x.qtd ? (100 * x.excedidas) / x.qtd : null);
   const colunas = [
+    { chave: "abrir", titulo: "" },
     { chave: "tipo", titulo: "Tipo", texto: true, valor: (t) => t.tipo },
     { chave: "qtd", titulo: "Pausas", classe: "metric", valor: (t) => t.dados.qtd },
     { chave: "tempo", titulo: "Tempo total", classe: "metric", valor: (t) => t.dados.segundos },
@@ -635,7 +742,9 @@ function cardTipos(resp) {
   ].concat(prev ? [
     { chave: "previsto", titulo: "Previsto", classe: "metric", valor: (t) => t.dados.previsto },
     { chave: "acima", titulo: "Acima do previsto", classe: "metric", valor: (t) => acimaPct(t.dados) },
-  ] : []);
+  ] : [], [
+    { chave: "outliers", titulo: "Outliers", classe: "metric", valor: (t) => (comparavel(outliers[t.tipo]) ? outliers[t.tipo].pessoas.length : null) },
+  ]);
   const tipos = ordenar([...resp.tipos].sort((a, b) => b.dados.segundos - a.dados.segundos), "tipos", colunas);
   if (!tipos.length) {
     card.append(el("p", { class: "muted", text: "Nenhuma pausa no período." }));
@@ -644,19 +753,47 @@ function cardTipos(resp) {
   const tbody = el("tbody");
   for (const t of tipos) {
     const x = t.dados;
+    const o = outliers[t.tipo];
     const comFim = x.segundos && x.qtd ? x.segundos / x.qtd : null;
     const pct = x.qtd ? Math.round((100 * x.excedidas) / x.qtd) : 0;
-    tbody.append(el("tr", {},
+    const nOut = o?.pessoas.length ?? 0;
+    const btn = el("button", { type: "button", class: "expandir", "aria-expanded": "false", title: "Quem se destaca neste tipo de pausa", text: "▸" });
+    const tr = el("tr", {},
+      el("td", {}, btn),
       el("td", { text: t.tipo }),
       el("td", { class: "metric", text: x.qtd.toLocaleString("pt-BR") }),
       el("td", { class: "metric", text: horasFmt(x.segundos) }),
       el("td", { class: "metric", text: comFim ? fmt(comFim) : "—" }),
       prev ? el("td", { class: "metric", text: x.previsto ? fmt(x.previsto) : "—" }) : null,
-      prev ? el("td", { class: `metric ${pct >= 30 ? "bad" : ""}`, text: x.previsto ? `${pct}%` : "—" }) : null));
+      prev ? el("td", { class: `metric ${pct >= 30 ? "bad" : ""}`, text: x.previsto ? `${pct}%` : "—" }) : null,
+      comparavel(o)
+        ? el("td", { class: `metric${nOut ? " alerta" : ""}`, title: `${nOut} de ${o.n} pessoas nos filtros com essa pausa`, text: String(nOut) })
+        : el("td", { class: "metric muted", title: `Poucas pessoas nos filtros com essa pausa para comparar (mínimo ${MIN_GRUPO_TIPO})`, text: "—" }));
+    let aberto = null;
+    const abrir = (sim) => {
+      if (sim && !aberto) {
+        aberto = detalheTipo(resp, t.tipo, o, colunas.length);
+        tr.after(aberto);
+        ajustarDetalhes();
+      } else if (!sim && aberto) {
+        aberto.remove();
+        aberto = null;
+      }
+      btn.textContent = aberto ? "▾" : "▸";
+      btn.setAttribute("aria-expanded", String(Boolean(aberto)));
+    };
+    btn.addEventListener("click", () => {
+      if (aberto) tiposAbertos.delete(t.tipo);
+      else tiposAbertos.add(t.tipo);
+      abrir(!aberto);
+    });
+    tbody.append(tr);
+    if (tiposAbertos.has(t.tipo)) abrir(true);
   }
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, cabecalho("tipos", colunas)), tbody));
   card.append(wrap);
+  requestAnimationFrame(ajustarDetalhes);
   return card;
 }
 
