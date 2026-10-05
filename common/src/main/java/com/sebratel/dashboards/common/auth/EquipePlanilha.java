@@ -30,7 +30,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>The sheet has full names ("Bruno Diaz Braga") and the systems short ones with the sector
  * ("Bruno Braga - Suporte Técnico"). Same rule as {@link CorrespondenciaNomes}: ignoring accents,
  * case and the particles da/de/do/das/dos/e, the first name is the same and every word of the system
- * name is in the sheet name. Several candidates: the one with fewest extra words; a tie, none.
+ * name is in the sheet name (or abbreviated there: "L." for "Lacerda"). Several candidates: the one
+ * with fewest extra words; a tie, none. The sheet is the support team, so a system name from another
+ * sector ("Daniel Silva - Backoffice") never matches.
+ * A first name alone ("Fernando - Suporte Técnico", as the Matrix has some) only matches when the
+ * system name is from support (the sheet is the support team) and one person in the sheet has it.
  */
 @Component
 public class EquipePlanilha {
@@ -100,6 +104,11 @@ public class EquipePlanilha {
         return pessoas.size();
     }
 
+    /** Everyone in the sheet (support team), as last received. */
+    public List<Pessoa> pessoas() {
+        return carga.pessoas();
+    }
+
     public LocalDateTime atualizadoEm() {
         return carga.atualizadoEm();
     }
@@ -117,17 +126,22 @@ public class EquipePlanilha {
         Pessoa melhor = null;
         int menosSobra = Integer.MAX_VALUE;
         boolean empate = false;
-        for (String pessoa : nomeSistema.trim().split("\\s*-\\s*")) {
+        String[] partes = nomeSistema.trim().split("\\s*-\\s*");
+        if (partes.length > 1 && !doSuporte(partes)) {
+            return NINGUEM; // "Daniel Silva - Backoffice" não é o Daniel Da Silva Lopes do suporte
+        }
+        for (String pessoa : partes) {
             List<String> curto = palavras(pessoa);
             if (curto.size() < 2) {
                 continue; // a parte do setor ("Suporte Técnico" também tem 2 palavras, mas não casa com ninguém)
             }
             for (Pessoa p : carga.pessoas()) {
                 List<String> longo = palavras(p.nome());
-                if (longo.isEmpty() || !longo.get(0).equals(curto.get(0)) || !longo.containsAll(curto)) {
+                List<String> c = inicialGrudada(longo, curto);
+                if (longo.isEmpty() || !longo.get(0).equals(c.get(0)) || !contem(longo, c)) {
                     continue;
                 }
-                int sobra = longo.size() - curto.size();
+                int sobra = longo.size() - c.size();
                 if (sobra < menosSobra) {
                     melhor = p;
                     menosSobra = sobra;
@@ -137,7 +151,67 @@ public class EquipePlanilha {
                 }
             }
         }
+        if (melhor == null) {
+            melhor = soPrimeiroNome(partes);
+        }
         return melhor == null || empate ? NINGUEM : melhor;
+    }
+
+    /**
+     * Every word of the system name is in the sheet name, or abbreviated there by its initial
+     * ("Pedro Lacerda" in "Pedro Henrique L. Barbosa"); each sheet word is used once.
+     */
+    static boolean contem(List<String> longo, List<String> curto) {
+        List<String> resto = new ArrayList<>(longo);
+        for (String w : curto) {
+            if (!resto.remove(w) && !resto.remove(w.substring(0, 1))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * "Pedroh Pires" for "Pedro Henrique Araújo Pires": the system's first name is the sheet's first name
+     * with the initial of the second one glued to it; read it as both names. Otherwise unchanged.
+     */
+    static List<String> inicialGrudada(List<String> longo, List<String> curto) {
+        if (longo.size() < 2 || longo.get(0).equals(curto.get(0))
+                || !curto.get(0).equals(longo.get(0) + longo.get(1).charAt(0))) {
+            return curto;
+        }
+        List<String> c = new ArrayList<>(List.of(longo.get(0), longo.get(1)));
+        c.addAll(curto.subList(1, curto.size()));
+        return c;
+    }
+
+    /** The sheet is the support team: some part of the system name ("Suporte Técnico") says so. */
+    private static boolean doSuporte(String[] partes) {
+        for (String parte : partes) {
+            if (palavras(parte).contains("suporte")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** "Fernando - Suporte Técnico": the only person in the sheet with that first name, or null. */
+    private Pessoa soPrimeiroNome(String[] partes) {
+        List<String> nome = palavras(partes[0]);
+        if (nome.size() != 1 || !doSuporte(partes)) {
+            return null;
+        }
+        Pessoa unica = null;
+        for (Pessoa p : carga.pessoas()) {
+            List<String> longo = palavras(p.nome());
+            if (!longo.isEmpty() && longo.get(0).equals(nome.get(0))) {
+                if (unica != null) {
+                    return null; // dois com o mesmo primeiro nome: não dá para saber quem é
+                }
+                unica = p;
+            }
+        }
+        return unica;
     }
 
     static List<String> palavras(String nome) {

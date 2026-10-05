@@ -108,6 +108,7 @@ public class OfensoresController {
         resp.put("metas", metas);
         resp.put("atendentes", atendentes);
         resp.put("equipeAtualizadaEm", equipe.atualizadoEm());
+        resp.put("equipe", equipe.pessoas());
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hojeApenas ? hoje.calculadoEm() : referencia.periodoCalculadoEm());
         return resp;
@@ -187,6 +188,7 @@ public class OfensoresController {
         resp.put("minIntervalosReferencia", 10);
         resp.put("atendentes", atendentes);
         resp.put("equipeAtualizadaEm", equipe.atualizadoEm());
+        resp.put("equipe", equipe.pessoas());
         resp.put("calculadoEm", calc.calculadoEm());
         return resp;
     }
@@ -251,6 +253,7 @@ public class OfensoresController {
         resp.put("limites", limites);
         resp.put("atendentes", atendentes);
         resp.put("equipeAtualizadaEm", equipe.atualizadoEm());
+        resp.put("equipe", equipe.pessoas());
         resp.put("tipos", tipos);
         // Tempo logado de todos com sessão no período (inclusive quem não atendeu): a tela junta com o
         // do outro sistema pela correspondência de nomes.
@@ -272,5 +275,6 @@ public class OfensoresController {
         EquipePlanilha.Pessoa p = equipe.de(nome);
         item.put("turno", p == null ? null : p.turno());
         item.put("supervisor", p == null ? null : p.supervisor());
+        item.put("equipeNome", p == null ? null : p.nome()); // para a tela listar quem da equipe não aparece
     }
 }
