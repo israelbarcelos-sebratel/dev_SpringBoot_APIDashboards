@@ -39,6 +39,8 @@ let prefs = {
   sistema: "native",
   minimos: { hoje: 3, "30d": 20, "nova-hoje": 3, "nova-30d": 20, "pausas-hoje": 1, "pausas-30d": 20 },
   setor: "",
+  turno: "", // da planilha da equipe do suporte (só quem está nela tem turno)
+  supervisor: "", // só com um setor de suporte escolhido
   todos: false,
   ordem: {}, // tabela -> { col, dir }: coluna escolhida no cabeçalho (sem = ordem padrão da tabela)
 };
@@ -143,7 +145,7 @@ function ranking(resp, metrica) {
   for (const a of resp.atendentes) {
     const t = a.tempos[metrica];
     if (!t || a.atendimentos < minimo()) continue;
-    if (prefs.setor && a.setor !== prefs.setor) continue;
+    if (!noFiltro(a)) continue;
     const valor = t.segundosMedios;
     let ref = null;
     let excesso = null;
@@ -251,24 +253,62 @@ Abrir os atendimentos de hoje dessa pessoa` },
   return card;
 }
 
-function desenharSetores(resp) {
-  const sel = $("setor");
-  const setores = [...new Set(resp.atendentes.map((a) => a.setor).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  if (prefs.setor && !setores.includes(prefs.setor)) prefs.setor = "";
-  // Mesmos setores: não recria as opções (fecharia a lista aberta e perderia o foco).
-  const atuais = [...sel.options].slice(1).map((o) => o.value);
-  if (atuais.length !== setores.length || atuais.some((v, i) => v !== setores[i])) {
-    sel.innerHTML = "";
-    sel.append(el("option", { value: "", text: "Todos os setores" }));
-    for (const s of setores) sel.append(el("option", { value: s, text: s }));
-  }
-  sel.value = prefs.setor;
+/** Supervisão só se filtra dentro de um setor de suporte. */
+const ehSuporte = () => /suporte/i.test(prefs.setor || "");
+
+/** Filtros cumulativos: setor, turno e (no suporte) supervisão. */
+function noFiltro(a) {
+  return (!prefs.setor || a.setor === prefs.setor)
+    && (!prefs.turno || a.turno === prefs.turno)
+    && (!ehSuporte() || !prefs.supervisor || a.supervisor === prefs.supervisor);
 }
 
-/** A pessoa está num filtro (lista de setor aberta, digitando o mínimo): não redesenhar agora. */
+const ORDEM_TURNOS = ["Manhã", "Intermediário", "Tarde", "Madrugada"];
+function ordemTurno(a, b) {
+  const ia = ORDEM_TURNOS.indexOf(a);
+  const ib = ORDEM_TURNOS.indexOf(b);
+  if (ia !== ib) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  return a.localeCompare(b, "pt-BR");
+}
+
+/** Opções de um filtro; mesmas opções: não recria (fecharia a lista aberta e perderia o foco). */
+function preencher(sel, valores, todos, atual) {
+  const atuais = [...sel.options].slice(1).map((o) => o.value);
+  if (atuais.length !== valores.length || atuais.some((v, i) => v !== valores[i])) {
+    sel.innerHTML = "";
+    sel.append(el("option", { value: "", text: todos }));
+    for (const v of valores) sel.append(el("option", { value: v, text: v }));
+  }
+  sel.value = atual;
+}
+
+function desenharFiltros(resp) {
+  const unicos = (lista, campo) => [...new Set(lista.map((a) => a[campo]).filter(Boolean))];
+  const setores = unicos(resp.atendentes, "setor").sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (prefs.setor && !setores.includes(prefs.setor)) prefs.setor = "";
+  preencher($("setor"), setores, "Todos os setores", prefs.setor);
+
+  // Turnos e supervisões de quem está no setor escolhido (só a equipe da planilha tem).
+  const doSetor = resp.atendentes.filter((a) => !prefs.setor || a.setor === prefs.setor);
+  const turnos = unicos(doSetor, "turno").sort(ordemTurno);
+  if (prefs.turno && !turnos.includes(prefs.turno)) prefs.turno = "";
+  preencher($("turno"), turnos, "Todos os turnos", prefs.turno);
+  const quando = resp.equipeAtualizadaEm ? new Date(resp.equipeAtualizadaEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : null;
+  $("turno-filtro").title = quando ? `Turno e supervisão: planilha da equipe do suporte, atualizada em ${quando}.`
+    : "Turno e supervisão: planilha da equipe do suporte (ainda não recebida).";
+
+  const supervisores = ehSuporte()
+    ? unicos(doSetor.filter((a) => !prefs.turno || a.turno === prefs.turno), "supervisor").sort((a, b) => a.localeCompare(b, "pt-BR"))
+    : [];
+  if (prefs.supervisor && !supervisores.includes(prefs.supervisor)) prefs.supervisor = "";
+  $("supervisor-filtro").hidden = !ehSuporte();
+  preencher($("supervisor"), supervisores, "Todas as supervisões", prefs.supervisor);
+}
+
+/** A pessoa está num filtro (lista aberta, digitando o mínimo): não redesenhar agora. */
 function interagindo() {
   const a = document.activeElement;
-  return Boolean(a && (a.id === "setor" || a.id === "minimo"));
+  return Boolean(a && ["setor", "turno", "supervisor", "minimo"].includes(a.id));
 }
 
 /**
@@ -325,7 +365,7 @@ function desenhar() {
     $("sub").textContent = "";
     return;
   }
-  desenharSetores(resp);
+  desenharFiltros(resp);
   for (const m of METRICAS) alvo.append(cardMetrica(resp, m));
   const hora = resp.ultimoRegistro ? resp.ultimoRegistro.slice(11, 16) : "—";
   const total = resp.atendentes.reduce((s, a) => s + a.atendimentos, 0).toLocaleString("pt-BR");
@@ -379,10 +419,10 @@ function desenharNova() {
     $("sub").textContent = "";
     return;
   }
-  desenharSetores(resp);
+  desenharFiltros(resp);
   const hoje = prefs.periodoNova === "hoje";
   const linhas = resp.atendentes
-    .filter((a) => a.atendimentos >= minimo() && (!prefs.setor || a.setor === prefs.setor))
+    .filter((a) => a.atendimentos >= minimo() && noFiltro(a))
     .map((a) => ({ a, valor: a.nova.segundosMedios, excesso: a.referencia ? a.nova.segundosMedios - a.referencia.segundosMedios : null }))
     .sort((x, y) => {
       if ((x.excesso === null) !== (y.excesso === null)) return x.excesso === null ? 1 : -1;
@@ -756,12 +796,12 @@ function desenharPausas() {
     $("sub").textContent = "";
     return;
   }
-  desenharSetores(resp);
+  desenharFiltros(resp);
   const lista = golpes(resp);
   alvo.append(cardGolpes(resp));
 
   const linhas = resp.atendentes
-    .filter((a) => a.dados.atendimentos >= minimo() && (!prefs.setor || a.setor === prefs.setor))
+    .filter((a) => a.dados.atendimentos >= minimo() && noFiltro(a))
     .map((a) => {
       const t = {};
       for (const g of lista) t[g.chave] = taxa(resp, a, g.chave);
@@ -910,12 +950,24 @@ for (const b of document.querySelectorAll(".chip[data-sistema]")) {
   b.addEventListener("click", () => {
     prefs.sistema = b.dataset.sistema;
     prefs.setor = "";
+    prefs.supervisor = "";
     salvarPrefs();
     desenhar();
   });
 }
 $("setor").addEventListener("change", (e) => {
   prefs.setor = e.target.value;
+  if (!ehSuporte()) prefs.supervisor = "";
+  salvarPrefs();
+  desenhar();
+});
+$("turno").addEventListener("change", (e) => {
+  prefs.turno = e.target.value;
+  salvarPrefs();
+  desenhar();
+});
+$("supervisor").addEventListener("change", (e) => {
+  prefs.supervisor = e.target.value;
   salvarPrefs();
   desenhar();
 });
