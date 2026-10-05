@@ -83,5 +83,35 @@ class EquipePlanilhaTest {
         assertNull(turno("Pedro Henrique - Suporte Técnico"));                 // dois Pedro Henrique: nenhum
         assertNull(turno("Cezar Goulart - Suporte Técnico"));                  // não está na planilha
         assertNull(turno("Ana Pires - Vendas Interno"));
+        assertNull(turno("Daniel Silva - Backoffice"));                        // não é o Daniel Da Silva Lopes
+        assertNull(turno("Backoffice - Daniel da Silva"));
+        assertNull(turno("Rafael Silva - COR"));                               // não é o Rafael Silva Da Silva
+    }
+
+    @Test
+    void sobrenomeAbreviadoNaPlanilha() {
+        assertEquals("Intermediário", turno("Pedro Lacerda - Suporte Técnico"));  // Pedro Henrique L. Barbosa
+        assertEquals("Manhã", turno("Pedro Pires - Suporte Técnico"));             // o outro Pedro
+        assertEquals("Manhã", turno("Dionatan Hoffmann - Suporte Técnico"));       // Dionatan Ernane H. Vedoy
+        assertNull(turno("Pedro Henrique - Suporte Técnico"));                      // os dois Pedro Henrique: nenhum
+    }
+
+    @Test
+    void inicialGrudadaNoPrimeiroNome() {
+        // "Pedroh" = Pedro H(enrique): é o Pedro Henrique Araújo Pires, não o L. Barbosa
+        assertEquals("Bruna Machado", equipe.de("Pedroh Pires - Suporte Técnico").supervisor());
+        assertEquals("Fabiano Alves Madruga", equipe.de("Pedroh Barbosa - Suporte Técnico").supervisor());
+        assertNull(turno("Pedrox Pires - Suporte Técnico"));                         // inicial que não é a do 2º nome
+        assertNull(turno("Pedroh - Suporte Técnico"));                               // sem sobrenome: os dois Pedro Henrique
+    }
+
+    @Test
+    void soPrimeiroNomeNaMatrix() {
+        assertEquals("Madrugada", turno("Ivan  - Suporte Técnico"));          // um Ivan só na planilha
+        assertEquals("Intermediário", turno("Róbson - Suporte Técnico"));     // acento não importa
+        assertNull(turno("Daniel - Suporte Técnico"));                          // dois Daniel: nenhum
+        assertNull(turno("Pedro - Suporte Técnico"));                           // dois Pedro: nenhum
+        assertNull(turno("Ivan - Financeiro"));                                 // a planilha é só do suporte
+        assertNull(turno("Fernando - Suporte Técnico"));                        // não está na planilha
     }
 }

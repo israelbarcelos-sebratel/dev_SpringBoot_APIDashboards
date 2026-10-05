@@ -210,7 +210,7 @@ function cardMetrica(resp, m) {
     { chave: "n", titulo: "Atend.", classe: "metric", valor: (l) => l.a.atendimentos },
   ];
   const ordenadas = ordenar(linhas, tabela, colunas);
-  const visiveis = prefs.todos ? ordenadas : ordenadas.slice(0, TOP);
+  const visiveis = todosVisiveis() ? ordenadas : ordenadas.slice(0, TOP);
   const tbody = el("tbody");
   visiveis.forEach((l) => {
     const excedeu = l.excesso !== null && l.excesso > 0;
@@ -249,7 +249,7 @@ Abrir os atendimentos de hoje dessa pessoa` },
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, head), tbody));
   card.append(wrap);
-  if (!prefs.todos && linhas.length > TOP) {
+  if (!todosVisiveis() && linhas.length > TOP) {
     card.append(el("p", { class: "legend", text: `Mostrando os ${TOP} ${prefs.ordem?.[tabela] ? "primeiros" : "piores"} de ${linhas.length}.` }));
   }
   return card;
@@ -257,6 +257,9 @@ Abrir os atendimentos de hoje dessa pessoa` },
 
 /** Supervisão só se filtra dentro de um setor de suporte. */
 const ehSuporte = () => /suporte/i.test(prefs.setor || "");
+
+/** Com uma supervisão escolhida a equipe é pequena: as tabelas mostram todos, não só os piores. */
+const todosVisiveis = () => prefs.todos || Boolean(ehSuporte() && prefs.supervisor);
 
 /** Filtros cumulativos: setor, turno e (no suporte) supervisão. */
 function noFiltro(a) {
@@ -305,6 +308,69 @@ function desenharFiltros(resp) {
   if (prefs.supervisor && !supervisores.includes(prefs.supervisor)) prefs.supervisor = "";
   $("supervisor-filtro").hidden = !ehSuporte();
   preencher($("supervisor"), supervisores, "Todas as supervisões", prefs.supervisor);
+  desenharEquipe(resp);
+}
+
+/** Atendimentos de uma linha (as abas guardam em lugares diferentes). */
+const atendimentosDe = (a) => a.atendimentos ?? a.dados?.atendimentos ?? 0;
+
+/**
+ * Com supervisão ou turno escolhido: a equipe inteira da planilha, dizendo quem não aparece nas tabelas
+ * e por quê — sem atendimento neste sistema no período (talvez só no outro) ou abaixo do mínimo.
+ */
+function desenharEquipe(resp) {
+  const caixa = $("equipe-aviso");
+  caixa.innerHTML = "";
+  const sup = ehSuporte() ? prefs.supervisor : "";
+  const equipe = (resp.equipe || []).filter((p) => (!sup || p.supervisor === sup) && (!prefs.turno || p.turno === prefs.turno));
+  caixa.hidden = !(sup || prefs.turno) || (prefs.setor && !ehSuporte()) || !equipe.length;
+  if (caixa.hidden) return;
+
+  const porNome = (r) => {
+    const m = new Map();
+    for (const a of r?.atendentes || []) {
+      if (a.equipeNome && noFiltro(a)) m.set(a.equipeNome, (m.get(a.equipeNome) || 0) + atendimentosDe(a));
+    }
+    return m;
+  };
+  const aqui = porNome(resp);
+  const sistema = SISTEMAS.find((x) => x.chave === prefs.sistema);
+  const outro = SISTEMAS.find((x) => x.chave !== prefs.sistema);
+  const respOutro = dados[`${chavePeriodo()}:${outro.chave}`];
+  const la = respOutro && !respOutro.erro ? porNome(respOutro) : null;
+  const trinta = prefs.periodo === "30d" || (temSubPeriodo() && prefs.periodoNova === "30d");
+  const quando = trinta ? `nos últimos ${resp.dias || 30} dias` : "hoje";
+
+  const nesta = [];
+  const poucos = [];
+  const sem = [];
+  for (const p of equipe) {
+    const n = aqui.get(p.nome);
+    if (n === undefined) sem.push(p);
+    else if (n < minimo()) poucos.push([p, n]);
+    else nesta.push(p);
+  }
+  const titulo = [sup ? `Equipe de ${sup}` : null, prefs.turno ? `turno ${prefs.turno}` : null].filter(Boolean).join(" · ");
+  const lista = (itens, texto) => el("ul", {}, ...itens.map((x) => el("li", { text: texto(x) })));
+  const turnoDe = (p) => (p.turno && !prefs.turno ? ` · ${p.turno}` : "");
+  caixa.append(
+    el("div", { class: "equipe-head" },
+      el("strong", { text: titulo }),
+      el("span", { class: "muted", text: `${equipe.length} pessoa(s) na planilha · ${nesta.length} nas tabelas abaixo (${sistema.titulo}, ${quando})` })));
+  if (poucos.length) {
+    caixa.append(el("div", {},
+      el("h4", { text: `Com menos de ${minimo()} atendimento(s) — abaixo do mínimo escolhido (${poucos.length})` }),
+      lista(poucos, ([p, n]) => `${p.nome} — ${n} atendimento(s)${turnoDe(p)}`)));
+  }
+  if (sem.length) {
+    caixa.append(el("div", {},
+      el("h4", { text: `Sem atendimentos na ${sistema.titulo} ${quando} (${sem.length})` }),
+      lista(sem, (p) => {
+        const noOutro = la?.get(p.nome);
+        return `${p.nome}${turnoDe(p)}${noOutro ? ` — atendeu na ${outro.titulo} (${noOutro})` : ""}`;
+      })));
+  }
+  if (!poucos.length && !sem.length) caixa.append(el("p", { class: "muted", text: "Toda a equipe aparece nas tabelas abaixo." }));
 }
 
 /** A pessoa está num filtro (lista aberta, digitando o mínimo): não redesenhar agora. */
@@ -456,7 +522,7 @@ function desenharNova() {
   ];
   if (hoje) colunas.push({ chave: "andamento", titulo: "Em andamento", classe: "metric", valor: (l) => l.a.nova.emAndamentoSegundos });
   const ordenadas = ordenar(linhas, "nova", colunas);
-  const visiveis = prefs.todos ? ordenadas : ordenadas.slice(0, 20);
+  const visiveis = todosVisiveis() ? ordenadas : ordenadas.slice(0, 20);
   const horas = (s) => (s >= 3600 ? `${(s / 3600).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h` : fmt(s));
   const tbody = el("tbody");
   visiveis.forEach((l) => {
@@ -488,7 +554,7 @@ function desenharNova() {
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, head), tbody));
   card.append(wrap);
-  if (!prefs.todos && linhas.length > 20) card.append(el("p", { class: "legend", text: `Mostrando os 20 primeiros de ${linhas.length}.` }));
+  if (!todosVisiveis() && linhas.length > 20) card.append(el("p", { class: "legend", text: `Mostrando os 20 primeiros de ${linhas.length}.` }));
   alvo.append(card);
   const calc = resp.calculadoEm ? resp.calculadoEm.slice(11, 16) : "—";
   $("sub").textContent = `${resp.atendentes.length} atendente(s) · calculado às ${calc}`;
@@ -980,7 +1046,7 @@ function desenharPausas() {
   const ncols = 8 + lista.length + 1;
   const tbody = el("tbody");
   const ordenadas = ordenar(linhas, "pausas", colunas);
-  const visiveis = prefs.todos ? ordenadas : ordenadas.slice(0, 30);
+  const visiveis = todosVisiveis() ? ordenadas : ordenadas.slice(0, 30);
   visiveis.forEach((l) => {
     const x = l.a.dados;
     const d = Math.max(1, x.dias);
@@ -1032,7 +1098,7 @@ Limite ${g.limite} · mediana da operação ${medTxt}/dia`, text: texto });
   const wrap = el("div", { class: "table-wrap" });
   wrap.append(el("table", {}, el("thead", {}, cabecalho("pausas", colunas)), tbody));
   card.append(wrap);
-  if (!prefs.todos && linhas.length > 30) card.append(el("p", { class: "legend", text: `Mostrando os 30 primeiros de ${linhas.length}.` }));
+  if (!todosVisiveis() && linhas.length > 30) card.append(el("p", { class: "legend", text: `Mostrando os 30 primeiros de ${linhas.length}.` }));
   requestAnimationFrame(ajustarDetalhes); // linhas que já estavam abertas, agora com a tabela na tela
   card.append(el("p", { class: "legend", text: "Tempo logado: soma das sessões de login no período (sessões sobrepostas contam uma vez)" +
     (prefs.periodoNova === "hoje" ? ", até agora. " : "; em 30 dias, a média por dia com login. ") +
