@@ -31,10 +31,10 @@ app:
   allowed-email-domain: ${ALLOWED_EMAIL_DOMAIN:sebratel.com.br}
   # E-mails sempre admin (bootstrap), separados por vírgula; os demais papéis ficam em usuarios_extensao.
   admin-emails: ${ADMIN_EMAILS:}
-  # Planilha da equipe do suporte (turno e supervisor), enviada pelo n8n uma vez por dia em
-  # PUT /interno/equipe com este token no header X-Equipe-Token (ver EquipeController). Vazio = desligado.
-  equipe:
-    token: ${EQUIPE_TOKEN:}
+  # Porta só da rede Docker (não publicada na stack): /interno/** responde só nela (ver PortaInterna).
+  # O n8n envia a planilha da equipe do suporte uma vez por dia em http://native-api:8093/interno/equipe.
+  interno:
+    porta: ${INTERNO_PORTA:8093}
   suporte:
     email: ${SUPPORT_EMAIL:desenvolvimento@sebratel.com.br}
     # Se definido, envia um e-mail de teste no startup (validar o SMTP de um deploy).

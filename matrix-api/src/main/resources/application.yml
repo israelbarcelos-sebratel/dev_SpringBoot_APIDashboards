@@ -31,10 +31,6 @@ app:
   allowed-email-domain: ${ALLOWED_EMAIL_DOMAIN:sebratel.com.br}
   # E-mails sempre admin (bootstrap), separados por vírgula; os demais papéis ficam em usuarios_extensao.
   admin-emails: ${ADMIN_EMAILS:}
-  # Planilha da equipe do suporte (turno e supervisor), enviada pelo n8n uma vez por dia em
-  # PUT /interno/equipe com este token no header X-Equipe-Token (ver EquipeController). Vazio = desligado.
-  equipe:
-    token: ${EQUIPE_TOKEN:}
   suporte:
     email: ${SUPPORT_EMAIL:desenvolvimento@sebratel.com.br}
     # Se definido, envia um e-mail de teste no startup (validar o SMTP de um deploy).
