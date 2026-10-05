@@ -1,0 +1,128 @@
+{
+  "name": "Equipe do suporte – planilha de turnos e supervisores (1x por dia)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "id": "e9a1c001-0000-4000-8000-000000000001",
+      "name": "Todo dia 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "1OrBs9xxqnGuL-YyVA9DVvo-BRAU6FwsVU2qwPVBLZ5g",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Página1",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "e9a1c001-0000-4000-8000-000000000002",
+      "name": "Ler planilha Agentes e horários Suporte",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2t81YYzgewKUsogC",
+          "name": "sheets_n8n_staging"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Todas as linhas num pedido só: a API substitui a tabela inteira (e recusa uma lista sem nomes).\nreturn [{ json: { linhas: $input.all().map((i) => i.json) } }];"
+      },
+      "id": "e9a1c001-0000-4000-8000-000000000003",
+      "name": "Juntar linhas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://native-api:8092/interno/equipe",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.linhas) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "e9a1c001-0000-4000-8000-000000000004",
+      "name": "Enviar para a native-api",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Todo dia 06:00": {
+      "main": [
+        [
+          {
+            "node": "Ler planilha Agentes e horários Suporte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler planilha Agentes e horários Suporte": {
+      "main": [
+        [
+          {
+            "node": "Juntar linhas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Juntar linhas": {
+      "main": [
+        [
+          {
+            "node": "Enviar para a native-api",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  }
+}

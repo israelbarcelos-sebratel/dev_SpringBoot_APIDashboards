@@ -57,3 +57,16 @@ CREATE TABLE IF NOT EXISTS correspondencia_nomes (
     atualizado_em  DATETIME     NOT NULL,
     PRIMARY KEY (nome_matrix, nome_native)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Equipe do suporte (planilha "Agentes e horários Suporte", ver EquipePlanilha): turno, horário e
+-- supervisor(a) de cada pessoa. O n8n lê a planilha uma vez por dia e substitui o conteúdo inteiro
+-- (PUT /interno/equipe); os nomes são os da planilha (completos), ligados aos do sistema na leitura.
+CREATE TABLE IF NOT EXISTS equipe_planilha (
+    nome          VARCHAR(255) NOT NULL,
+    inicio        VARCHAR(255) NULL,
+    fim           VARCHAR(255) NULL,
+    supervisor    VARCHAR(255) NULL,
+    turno         VARCHAR(255) NULL,
+    atualizado_em DATETIME     NOT NULL,
+    PRIMARY KEY (nome)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

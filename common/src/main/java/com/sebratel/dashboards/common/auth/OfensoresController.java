@@ -38,10 +38,12 @@ public class OfensoresController {
     private final TableGroupProperties groupProperties;
     private final TmeaNovaRegra tmeaNova;
     private final PausasComportamento pausas;
+    private final EquipePlanilha equipe;
 
     public OfensoresController(UsuarioRepository usuarios, TemposHojeJob temposHoje, ReferenciaMensalJob referencia,
                                WidgetProperties widgetProperties, TableGroupProperties groupProperties,
-                               TmeaNovaRegra tmeaNova, PausasComportamento pausas) {
+                               TmeaNovaRegra tmeaNova, PausasComportamento pausas, EquipePlanilha equipe) {
+        this.equipe = equipe;
         this.tmeaNova = tmeaNova;
         this.pausas = pausas;
         this.usuarios = usuarios;
@@ -85,6 +87,7 @@ public class OfensoresController {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("nome", nome);
             item.put("setor", referencia.setor(nome));
+            equipe(item, nome);
             item.put("atendimentos", dados.atendimentos().getOrDefault(nome, 0L));
             item.put("tempos", t);
             item.put("tmeaReferencia", referencia.tmeaSetor(List.of(nome)));
@@ -104,6 +107,7 @@ public class OfensoresController {
         resp.put("dias", hojeApenas ? 1 : referencia.dias());
         resp.put("metas", metas);
         resp.put("atendentes", atendentes);
+        resp.put("equipeAtualizadaEm", equipe.atualizadoEm());
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hojeApenas ? hoje.calculadoEm() : referencia.periodoCalculadoEm());
         return resp;
@@ -151,6 +155,7 @@ public class OfensoresController {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("nome", nome);
             item.put("setor", setor);
+            equipe(item, nome);
             item.put("atendimentos", oficial.atendimentos().getOrDefault(nome, 0L));
             item.put("nova", r);
             item.put("atual", oficial.porAtendente().getOrDefault(nome, Map.of()).get(TemposHojeJob.TMEA));
@@ -181,6 +186,7 @@ public class OfensoresController {
         resp.put("maxAndamentoMinutos", TmeaNovaRegra.MAX_ANDAMENTO_SEGUNDOS / 60);
         resp.put("minIntervalosReferencia", 10);
         resp.put("atendentes", atendentes);
+        resp.put("equipeAtualizadaEm", equipe.atualizadoEm());
         resp.put("calculadoEm", calc.calculadoEm());
         return resp;
     }
@@ -208,6 +214,7 @@ public class OfensoresController {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("nome", nome);
             item.put("setor", referencia.setor(nome));
+            equipe(item, nome);
             item.put("dados", a);
             TmeaNovaRegra.Resultado r = ocio == null ? null : ocio.porAtendente().get(nome);
             item.put("ociosoLongo", r == null ? 0 : r.longos());
@@ -243,6 +250,7 @@ public class OfensoresController {
         limites.put("internasMin", 30);
         resp.put("limites", limites);
         resp.put("atendentes", atendentes);
+        resp.put("equipeAtualizadaEm", equipe.atualizadoEm());
         resp.put("tipos", tipos);
         // Tempo logado de todos com sessão no período (inclusive quem não atendeu): a tela junta com o
         // do outro sistema pela correspondência de nomes.
@@ -257,5 +265,12 @@ public class OfensoresController {
         if (!UsuarioRepository.ADMIN.equals(usuarios.find(email).role())) {
             throw new AuthException(403, "Somente administradores.");
         }
+    }
+
+    /** Turno e supervisor(a) da planilha da equipe do suporte (null para quem não está nela). */
+    private void equipe(Map<String, Object> item, String nome) {
+        EquipePlanilha.Pessoa p = equipe.de(nome);
+        item.put("turno", p == null ? null : p.turno());
+        item.put("supervisor", p == null ? null : p.supervisor());
     }
 }
