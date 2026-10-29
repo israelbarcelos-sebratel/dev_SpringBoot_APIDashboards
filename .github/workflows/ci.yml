@@ -61,3 +61,25 @@ jobs:
             echo "::error::Pelo menos um job não passou."; exit 1
           fi
           echo "Tudo verde."
+
+  # Deploy automático em STAGING: só depois do ci-ok e só em push na branch `staging`.
+  # Chama o webhook GitOps da stack no Portainer de staging (portainer-staging.sebratel.net.br), que faz
+  # pull da branch e rebuilda no host. A URL do webhook é segredo (quem a tem dispara deploy): fica só
+  # em Settings → Secrets → PORTAINER_WEBHOOK_URL_STAGING. Produção (`main`) continua manual.
+  deploy-staging:
+    name: Deploy — staging (Portainer)
+    runs-on: ubuntu-latest
+    needs: [ci-ok]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging' && needs.ci-ok.result == 'success'
+    timeout-minutes: 10
+    environment: staging
+    steps:
+      - name: Acionar o webhook da stack
+        env:
+          PORTAINER_WEBHOOK_URL_STAGING: ${{ secrets.PORTAINER_WEBHOOK_URL_STAGING }}
+        run: |
+          if [ -z "$PORTAINER_WEBHOOK_URL_STAGING" ]; then
+            echo "::error::Secret PORTAINER_WEBHOOK_URL_STAGING não configurado."; exit 1
+          fi
+          curl --fail --silent --show-error --retry 3 --retry-delay 5 -X POST "$PORTAINER_WEBHOOK_URL_STAGING"
+          echo "Webhook acionado: o Portainer está puxando a branch staging e rebuildando."
