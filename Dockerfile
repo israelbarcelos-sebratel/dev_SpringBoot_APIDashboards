@@ -21,6 +21,9 @@ WORKDIR /app
 COPY --from=build /app/app.jar app.jar
 # Pacote da extensão de Chrome servido em /download (ExtensaoDownloadController).
 COPY extension/tma-tme /app/extension
+# CRX assinado (instalação forçada pelo Admin Console do Google) servido em /download/tma-tme.crx e
+# /download/updates.xml (ExtensaoCrxController). Reempacote a cada versão da extensão: ver extension/README.md.
+COPY extension/tma-tme.crx /app/extension-crx/tma-tme.crx
 
 # Porta não ortodoxa por padrão (8091). Spring lê SERVER_PORT (ver application.yml).
 ARG PORT=8091
