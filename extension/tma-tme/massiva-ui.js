@@ -101,6 +101,32 @@
     return n === 1 ? "1 hora" : `${n} horas`;
   }
 
+  /**
+   * "hoje, por volta das 23h", "amanhã, ..." ou "dd/mm, ...". O servidor manda só as horas que faltam (arredondadas
+   * para cima) e a hora do dia; o dia é o que deixa a hora mais perto de agora + horas.
+   */
+  function quandoPrevisto(horasRestantes, horaDoDia, agora = new Date()) {
+    if (horaDoDia == null) return "";
+    const alvo = agora.getTime() + horasRestantes * 3600000;
+    let melhor = null;
+    for (let d = -1; d <= 1; d++) {
+      const c = new Date(alvo);
+      c.setDate(c.getDate() + d);
+      c.setHours(horaDoDia, 0, 0, 0);
+      if (!melhor || Math.abs(c - alvo) < Math.abs(melhor - alvo)) melhor = c;
+    }
+    return diaEHora(melhor, agora, true);
+  }
+
+  /** "hoje às 23:00", "amanhã às 08:30" ou "02/11 às 23:00". */
+  function diaEHora(data, agora = new Date(), aproximada = false) {
+    if (Number.isNaN(data.getTime())) return "";
+    const dias = Math.round((new Date(data).setHours(0, 0, 0, 0) - new Date(agora).setHours(0, 0, 0, 0)) / 86400000);
+    const dia = dias === 0 ? "hoje" : dias === 1 ? "amanhã" : dias === -1 ? "ontem" : data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    const hora = data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return aproximada ? `${dia}, por volta das ${data.getHours()}h` : `${dia} às ${hora}`;
+  }
+
   /** Mostra o resultado de uma consulta (a resposta do servidor) no painel. */
   function resultado(painel, r, { aoFim } = {}) {
     painel.corpo.replaceChildren();
@@ -111,9 +137,13 @@
       painel.caixa.classList.add("massiva");
       painel.corpo.append(linha("status", "Cliente em MASSIVA"));
       if (r.motivo) painel.corpo.append(linha("detalhe", `Motivo: ${motivoResumido(r.motivo)}`));
-      if (r.previsao_horas != null) {
-        const hora = r.previsao_hora != null ? ` (por volta das ${r.previsao_hora}h)` : "";
-        painel.corpo.append(linha("detalhe", `Previsão: ${horas(r.previsao_horas)}${hora}`));
+      if (r.previsao_vencida && r.previsao_em) {
+        painel.corpo.append(linha("detalhe", `Previsão vencida (era ${diaEHora(new Date(r.previsao_em))}). Sem nova previsão.`));
+      } else if (r.previsao_em) {
+        painel.corpo.append(linha("detalhe", `Previsão: ${diaEHora(new Date(r.previsao_em))} (em ${horas(r.previsao_horas)})`));
+      } else if (r.previsao_horas != null) {
+        const quando = quandoPrevisto(r.previsao_horas, r.previsao_hora);
+        painel.corpo.append(linha("detalhe", `Previsão: ${horas(r.previsao_horas)}${quando ? ` (${quando})` : ""}`));
       }
       const n = (r.contratos_em_massiva || []).length;
       if (n > 1) painel.corpo.append(linha("nota", `${n} contratos afetados.`));
@@ -173,9 +203,13 @@
     if (r.status === "cliente_nao_encontrado" || r.status === "telefone_compartilhado") return;
     const massivas = r.historico || [];
     const eventos = (r.autoisp && r.autoisp.recentes) || [];
-    if (!massivas.length && !eventos.length) return;
     const h = r.historico_horas || (r.autoisp && r.autoisp.recentes_horas) || 6;
-    painel.corpo.append(linha("nota", `Nas últimas ${h} horas:`));
+    if (!massivas.length && !eventos.length) {
+      // Só afirma "nenhum" se o servidor realmente mandou o histórico (versão antiga do servidor não manda).
+      if (r.historico !== undefined) painel.corpo.append(linha("nota", `Não existem outros eventos nas últimas ${h} horas.`));
+      return;
+    }
+    painel.corpo.append(linha("nota", `Eventos anteriores (últimas ${h} horas):`));
     for (const m of massivas.slice(0, 3)) {
       const de = dataCurta(m.aberta_em);
       const ate = m.encerrada_em ? ` até ${dataCurta(m.encerrada_em)}` : "";
@@ -200,5 +234,5 @@
     painel.caixa.className = "caixa aviso";
   }
 
-  window.SebratelMassivaUI = { criar, resultado, carregando, erro, linha, motivoResumido, ultimasHoras, NOMES };
+  window.SebratelMassivaUI = { criar, resultado, carregando, erro, linha, motivoResumido, ultimasHoras, quandoPrevisto, NOMES };
 })();

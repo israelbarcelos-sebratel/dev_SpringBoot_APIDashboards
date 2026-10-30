@@ -57,6 +57,8 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
 - `0.27.0`: primeira com aviso de massiva e busca por CPF/CNPJ.
 - `0.28.0`: acrescenta as alterações de rede do AutoISP ao aviso e à busca, resume o motivo da massiva e mostra o
   que o cliente teve nas últimas 6 horas (massivas e eventos de rede já encerrados).
+- `0.29.0`: a previsão mostra o dia e a hora exatos (e "previsão vencida"), e o painel sempre informa os eventos das
+  últimas 6 horas, inclusive "não existem outros eventos".
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.
