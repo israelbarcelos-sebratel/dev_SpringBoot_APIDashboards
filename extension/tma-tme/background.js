@@ -94,19 +94,47 @@ async function verificarAtualizacao() {
 const TAMANHOS_ICONE = [16, 32, 48, 128];
 let iconeDouradoAtual = null;
 
-/** Troca o vermelho da logo por dourado (matiz 44°), mantendo brilho e sombras; o cinza das peças não muda. */
-function douradoNosVermelhos(px) {
+/**
+ * Troca o vermelho da logo por ouro metálico. O brilho da esfera (claro e escuro) passa por uma rampa de cores de
+ * ouro — marrom-dourado nas sombras, ouro no meio, quase branco-champanhe no reflexo — com contraste maior e uma faixa
+ * diagonal de brilho, que é o que dá cara de metal e não de amarelo chapado. O cinza das peças não muda.
+ */
+const RAMPA_OURO = [
+  [0.0, [74, 44, 4]],
+  [0.22, [140, 92, 8]],
+  [0.42, [201, 145, 18]],
+  [0.58, [236, 182, 44]],
+  [0.76, [255, 217, 102]],
+  [0.9, [255, 238, 170]],
+  [1.0, [255, 250, 220]],
+];
+
+function corDoOuro(t) {
+  for (let i = 1; i < RAMPA_OURO.length; i++) {
+    if (t <= RAMPA_OURO[i][0]) {
+      const [t0, c0] = RAMPA_OURO[i - 1];
+      const [t1, c1] = RAMPA_OURO[i];
+      const k = (t - t0) / (t1 - t0);
+      return c0.map((v, j) => v + (c1[j] - v) * k);
+    }
+  }
+  return RAMPA_OURO[RAMPA_OURO.length - 1][1];
+}
+
+function douradoNosVermelhos(px, largura) {
   for (let i = 0; i < px.length; i += 4) {
-    const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
-    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
-    if (px[i + 3] === 0 || d < 0.12 || max !== r) continue; // transparente, cinza ou fora do vermelho
-    const sat = d / (1 - Math.abs(2 * l - 1) || 1);
-    const h = 44 / 60; // matiz dourada, em sextos de volta
-    const c = (1 - Math.abs(2 * l - 1)) * Math.min(1, sat * 1.05);
-    const x = c * (1 - Math.abs((h % 2) - 1)), m = l - c / 2;
-    px[i] = Math.round((c + m) * 255);
-    px[i + 1] = Math.round((x + m) * 255);
-    px[i + 2] = Math.round(m * 255);
+    const r = px[i], g = px[i + 1], b = px[i + 2];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    if (px[i + 3] === 0 || (max - min) / 255 < 0.12 || max !== r) continue; // transparente, cinza ou fora do vermelho
+    const luz = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    let t = Math.min(1, Math.max(0, (luz - 0.16) / 0.42)); // estica o brilho da esfera para a rampa toda
+    t = t * t * (3 - 2 * t); // curva S: sombras mais fundas e reflexos mais claros
+    const n = i / 4, x = (n % largura) / largura, y = Math.floor(n / largura) / largura;
+    t = Math.min(1, t + 0.32 * Math.exp(-Math.pow((x + y) / 2 - 0.34, 2) / 0.006)); // faixa diagonal de brilho
+    const c = corDoOuro(t);
+    px[i] = Math.round(c[0]);
+    px[i + 1] = Math.round(c[1]);
+    px[i + 2] = Math.round(c[2]);
   }
 }
 
@@ -119,7 +147,7 @@ async function iconeDourado() {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bmp, 0, 0, t, t);
     const img = ctx.getImageData(0, 0, t, t);
-    douradoNosVermelhos(img.data);
+    douradoNosVermelhos(img.data, t);
     imageData[t] = img;
   }
   return imageData;
