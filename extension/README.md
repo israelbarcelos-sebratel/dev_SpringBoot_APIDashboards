@@ -62,6 +62,8 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
 - `0.30.0`: "Modo de teste" no popup: mostra um aviso também para ligações ignoradas (ramal interno, saída, outro
   agente), com o motivo. Serve para confirmar que o evento da Native chega à extensão.
 - `0.31.0`: o painel não fecha mais sozinho; só pelo botão × ou com 3 cliques fora dele em menos de 1 segundo.
+- `0.32.0`: quando o cliente digita o CPF/CNPJ na URA e a Native cola os dígitos no número da ligação (0800 + documento),
+  a extensão extrai o documento (só se os dígitos verificadores baterem) e consulta por ele em vez do telefone.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.
