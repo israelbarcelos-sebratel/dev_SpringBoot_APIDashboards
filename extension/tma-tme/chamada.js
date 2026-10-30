@@ -15,43 +15,16 @@
     return String(valor ?? "").replace(/\D/g, "");
   }
 
-  function cpfValido(d) {
-    if (!/^\d{11}$/.test(d) || /^(\d)\1{10}$/.test(d)) return false;
-    for (const tam of [9, 10]) {
-      let soma = 0;
-      for (let i = 0; i < tam; i++) soma += Number(d[i]) * (tam + 1 - i);
-      const dv = ((soma * 10) % 11) % 10;
-      if (dv !== Number(d[tam])) return false;
-    }
-    return true;
-  }
-
-  function cnpjValido(d) {
-    if (!/^\d{14}$/.test(d) || /^(\d)\1{13}$/.test(d)) return false;
-    for (const tam of [12, 13]) {
-      const pesos = tam === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-      let soma = 0;
-      for (let i = 0; i < tam; i++) soma += Number(d[i]) * pesos[i];
-      const resto = soma % 11;
-      const dv = resto < 2 ? 0 : 11 - resto;
-      if (dv !== Number(d[tam])) return false;
-    }
-    return true;
-  }
-
   /**
-   * Na URA o cliente digita o CPF/CNPJ e a Native cola esses dígitos no número da ligação: 0800 766 1000 + CPF
-   * ("0800766100012345678910"). Procura isso em qualquer campo do evento e devolve só o documento, e só se os dígitos
-   * verificadores baterem (digitação errada não vira consulta).
+   * Na URA o cliente digita números (CPF/CNPJ e opções de menu) e a Native os cola no número da ligação: 0800 766 1000
+   * + o que foi digitado ("0800766100012345678910"). Procura isso em qualquer campo do evento e devolve só o que foi
+   * digitado, sem a parte do 0800. Não valida nem consulta nada: o atendente vê os dígitos como chegaram.
    */
-  function documentoNaUra(dados) {
+  function digitadoNaUra(dados) {
     for (const valor of Object.values(dados || {})) {
       if (typeof valor !== "string" && typeof valor !== "number") continue;
-      const d = digitos(valor);
-      const m = d.match(/(?:^|\D)?(?:55)?0?800\d{7}(\d{14}|\d{11})$/);
-      if (!m) continue;
-      const doc = m[1];
-      if (doc.length === 11 ? cpfValido(doc) : cnpjValido(doc)) return doc;
+      const m = digitos(valor).match(/^(?:55)?0?800\d{7}(\d{1,30})$/);
+      if (m) return m[1];
     }
     return null;
   }
@@ -93,14 +66,19 @@
       return;
     }
 
-    // CPF/CNPJ digitado na URA, colado no número: consulta pelo documento (mais certeiro que o telefone).
-    const documento = documentoNaUra(dados);
-    if (documento) {
-      const chaveDoc = `doc:${documento}`;
-      const agoraDoc = Date.now();
-      if (agoraDoc - (vistos.get(chaveDoc) || 0) < JANELA_MS) return;
-      vistos.set(chaveDoc, agoraDoc);
-      await consultar("Ligação recebida (CPF/CNPJ da URA)", { type: "massivaDocumento", documento });
+    // Dígitos que o cliente digitou na URA, colados ao número da ligação: só mostra, sem consultar o servidor.
+    const digitado = digitadoNaUra(dados);
+    if (digitado) {
+      const chave = `dig:${digitado}`;
+      const agoraDig = Date.now();
+      if (agoraDig - (vistos.get(chave) || 0) < JANELA_MS) return;
+      vistos.set(chave, agoraDig);
+      const ui = window.SebratelMassivaUI;
+      const painel = ui.criar("Ligação recebida");
+      painel.corpo.replaceChildren(
+        ui.linha("status", "Número digitado na URA"),
+        ui.linha("detalhe", digitado),
+        ui.linha("nota", "Sem consulta automática: use a busca por CPF/CNPJ (atalho) com o documento."));
       return;
     }
 
@@ -141,7 +119,7 @@
     }
   }
 
-  window.__sebratelChamadaTeste = { documentoNaUra, telefoneExterno }; // só para teste/diagnóstico
+  window.__sebratelChamadaTeste = { digitadoNaUra, telefoneExterno }; // só para teste/diagnóstico
 
   window.addEventListener("message", (ev) => {
     if (ev.source !== window || ev.origin !== window.location.origin) return;
