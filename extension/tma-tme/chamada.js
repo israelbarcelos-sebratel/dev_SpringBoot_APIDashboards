@@ -48,10 +48,14 @@
     for (const valor of Object.values(dados || {})) {
       if (typeof valor !== "string" && typeof valor !== "number") continue;
       const d = digitos(valor);
-      const m = d.match(/(?:^|\D)?(?:55)?0?800\d{7}(\d{14}|\d{11})$/);
+      // Depois do documento ainda podem vir as opções de menu que o cliente apertou ("…CPF24"): até 10 dígitos.
+      const m = d.match(/^(?:55)?0?800\d{7}(\d{11,24})$/);
       if (!m) continue;
-      const doc = m[1];
-      if (doc.length === 11 ? cpfValido(doc) : cnpjValido(doc)) return doc;
+      const resto = m[1];
+      const cnpj = resto.slice(0, 14);
+      if (resto.length >= 14 && resto.length <= 24 && cnpjValido(cnpj)) return cnpj;
+      const cpf = resto.slice(0, 11);
+      if (resto.length <= 21 && cpfValido(cpf)) return cpf;
     }
     return null;
   }
