@@ -41,6 +41,57 @@
   const ICON_TABELA =
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>';
 
+  const ICON_MINIMIZAR =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
+  const ICON_RESTAURAR =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>';
+
+  /** Minimizado = só o cabeçalho (com os botões) à mostra; clicar de novo restaura. */
+  function aplicarMinimizado(el, minimizado) {
+    el.classList.toggle("minimizado", Boolean(minimizado));
+    const btn = el.querySelector(".min-btn");
+    btn.innerHTML = minimizado ? ICON_RESTAURAR : ICON_MINIMIZAR;
+    btn.title = minimizado ? "Restaurar" : "Minimizar";
+    btn.setAttribute("aria-pressed", minimizado ? "true" : "false");
+  }
+
+  // ---- Aviso de versão nova ----
+
+  /** Pergunta ao background se há versão mais nova publicada e mostra/esconde o aviso no widget. */
+  async function checarAtualizacao(el) {
+    if (!extensaoValida()) return;
+    try {
+      const r = await chrome.runtime.sendMessage({ type: "atualizacao" });
+      const barra = el.querySelector(".update-bar");
+      if (r?.disponivel) {
+        el.querySelector(".update-txt").textContent = `Versão ${r.publicada} disponível (você usa a ${r.atual}).`;
+        el.querySelector(".update-btn").disabled = false;
+        barra.hidden = false;
+      } else {
+        barra.hidden = true;
+      }
+      ajustarAltura(el);
+    } catch {
+      /* script órfão ou background dormindo: tenta no próximo ciclo */
+    }
+  }
+
+  async function atualizarExtensao(el) {
+    const txt = el.querySelector(".update-txt");
+    const btn = el.querySelector(".update-btn");
+    btn.disabled = true;
+    txt.textContent = "Pedindo a atualização ao Chrome…";
+    try {
+      const r = await chrome.runtime.sendMessage({ type: "atualizarAgora" });
+      if (r?.status === "update_available") txt.textContent = "Baixando… a extensão recarrega sozinha. Se a página pedir, aperte F5.";
+      else if (r?.status === "throttled") txt.textContent = "O Chrome pede para esperar alguns minutos. Tente de novo em instantes.";
+      else txt.textContent = "O Chrome ainda não liberou a nova versão; ele tenta sozinho e o aviso some ao atualizar.";
+    } catch {
+      txt.textContent = "Não foi possível pedir agora. O Chrome atualiza sozinho em algumas horas.";
+    }
+    setTimeout(() => (btn.disabled = false), 15000);
+  }
+
   /** Fixado = sempre opaco; senão fica translúcido e só fica opaco com o mouse em cima. */
   function aplicarPin(el, pinned) {
     el.classList.toggle("pinned", Boolean(pinned));
@@ -60,8 +111,13 @@
         <span class="header-actions">
           <button type="button" class="hbtn table-btn" title="Resumo dos últimos dias e atendimentos de hoje">${ICON_TABELA}</button>
           <button type="button" class="hbtn pin-btn" aria-pressed="false">${ICON_PIN}</button>
+          <button type="button" class="hbtn min-btn" aria-pressed="false">${ICON_MINIMIZAR}</button>
           <button type="button" class="hbtn close-btn" title="Fechar">&times;</button>
         </span>
+      </div>
+      <div class="update-bar" role="status" hidden>
+        <span class="update-txt"></span>
+        <button type="button" class="update-btn">Atualizar</button>
       </div>
       <div class="switcher" role="tablist" aria-label="Mostrar dados de" hidden>
         <button type="button" class="sw-btn" role="tab" data-secao="native" aria-selected="true">Native</button>
@@ -140,6 +196,18 @@
       saveState({ pinned });
     });
 
+    el.querySelector(".update-btn").addEventListener("click", () => atualizarExtensao(el));
+
+    el.querySelector(".min-btn").addEventListener("click", () => {
+      const minimizado = !el.classList.contains("minimizado");
+      aplicarMinimizado(el, minimizado);
+      if (!minimizado) {
+        ajustarAltura(el);
+        garantirVisivel(el);
+      }
+      saveState({ minimizado });
+    });
+
     el.querySelector(".table-btn").addEventListener("click", () => {
       if (!extensaoValida()) return;
       try {
@@ -176,7 +244,7 @@
 
   /** Aplica a altura desejada respeitando os limites; compacto = corpo menor que o conteúdo. */
   function ajustarAltura(el) {
-    if (el.style.display === "none") return;
+    if (el.style.display === "none" || el.classList.contains("minimizado")) return; // medir com o corpo oculto daria 0
     const body = corpo(el);
     const antes = body.style.height;
     body.style.height = ""; // mede o tamanho natural
@@ -574,6 +642,7 @@
     el.style.display = "block";
     el.querySelector(".close-btn").addEventListener("click", desligar);
     aplicarPin(el, state.pinned);
+    aplicarMinimizado(el, state.minimizado);
     if (state.left && state.top) {
       el.style.left = state.left;
       el.style.top = state.top;
@@ -600,10 +669,18 @@
 
     ligar(el);
 
+    // Avisa quando há versão nova publicada (confere ao abrir e a cada 30 min enquanto a aba está aberta).
+    checarAtualizacao(el);
+    setInterval(() => checarAtualizacao(el), 30 * 60 * 1000);
+
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local" || !changes[STORAGE_KEY]) return;
       const newVal = changes[STORAGE_KEY].newValue || {};
       aplicarPin(el, newVal.pinned); // fixar numa aba vale para todas (abrir/fechar não)
+      if (el.classList.contains("minimizado") !== Boolean(newVal.minimizado)) {
+        aplicarMinimizado(el, newVal.minimizado); // minimizar também vale para todas as abas
+        if (!newVal.minimizado) ajustarAltura(el);
+      }
     });
 
     // Admin trocou "Ver dados de" no popup: atualiza na hora, sem esperar o próximo ciclo, e limpa
