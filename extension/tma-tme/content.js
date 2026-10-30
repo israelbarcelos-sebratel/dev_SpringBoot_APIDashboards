@@ -72,6 +72,7 @@
       } else {
         barra.hidden = true;
       }
+      el.classList.toggle("tem-atualizacao", Boolean(r?.disponivel));
       ajustarAltura(el);
     } catch {
       /* script órfão ou background dormindo: tenta no próximo ciclo */

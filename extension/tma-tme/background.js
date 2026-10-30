@@ -87,6 +87,69 @@ async function verificarAtualizacao() {
   }
 }
 
+/**
+ * Logo da barra do Chrome: dourada enquanto há versão nova a instalar, original no resto. A dourada sai da própria
+ * logo vermelha com a matiz girada (sem arquivo extra), no tamanho de cada ícone.
+ */
+const TAMANHOS_ICONE = [16, 32, 48, 128];
+let iconeDouradoAtual = null;
+
+/** Troca o vermelho da logo por dourado (matiz 44°), mantendo brilho e sombras; o cinza das peças não muda. */
+function douradoNosVermelhos(px) {
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+    if (px[i + 3] === 0 || d < 0.12 || max !== r) continue; // transparente, cinza ou fora do vermelho
+    const sat = d / (1 - Math.abs(2 * l - 1) || 1);
+    const h = 44 / 60; // matiz dourada, em sextos de volta
+    const c = (1 - Math.abs(2 * l - 1)) * Math.min(1, sat * 1.05);
+    const x = c * (1 - Math.abs((h % 2) - 1)), m = l - c / 2;
+    px[i] = Math.round((c + m) * 255);
+    px[i + 1] = Math.round((x + m) * 255);
+    px[i + 2] = Math.round(m * 255);
+  }
+}
+
+async function iconeDourado() {
+  const imageData = {};
+  for (const t of TAMANHOS_ICONE) {
+    const resp = await fetch(chrome.runtime.getURL(`icons/icon${t}.png`));
+    const bmp = await createImageBitmap(await resp.blob());
+    const canvas = new OffscreenCanvas(t, t);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bmp, 0, 0, t, t);
+    const img = ctx.getImageData(0, 0, t, t);
+    douradoNosVermelhos(img.data);
+    imageData[t] = img;
+  }
+  return imageData;
+}
+
+async function aplicarIcone(disponivel) {
+  if (iconeDouradoAtual === disponivel) return;
+  try {
+    if (disponivel) {
+      await chrome.action.setIcon({ imageData: await iconeDourado() });
+      await chrome.action.setTitle({ title: "TMA/TME Sebratel — atualização disponível" });
+    } else {
+      const path = Object.fromEntries(TAMANHOS_ICONE.map((t) => [t, `icons/icon${t}.png`]));
+      await chrome.action.setIcon({ path });
+      await chrome.action.setTitle({ title: "TMA/TME Sebratel" });
+    }
+    iconeDouradoAtual = disponivel;
+  } catch {
+    /* sem ícone novo desta vez: tenta de novo na próxima verificação */
+  }
+}
+
+/** Verifica a versão publicada (com cache) e acerta a cor da logo; roda quando o serviço acorda. */
+async function verificarEPintar() {
+  const r = await verificarAtualizacao();
+  await aplicarIcone(Boolean(r.disponivel));
+  return r;
+}
+verificarEPintar().catch(() => {});
+
 /** Pede ao Chrome a atualização agora; quando ela baixar, recarrega a extensão para a versão nova valer. */
 async function atualizarAgora() {
   chrome.runtime.onUpdateAvailable.addListener(() => chrome.runtime.reload());
@@ -97,7 +160,7 @@ async function atualizarAgora() {
 // O widget (content script) não tem acesso a chrome.identity; ele pede os dados aqui.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "atualizacao") {
-    verificarAtualizacao().then(sendResponse).catch(() => sendResponse({ disponivel: false }));
+    verificarEPintar().then(sendResponse).catch(() => sendResponse({ disponivel: false }));
     return true;
   }
   if (msg?.type === "atualizarAgora") {
