@@ -33,13 +33,13 @@ Dispositivos → Chrome → Aplicativos e extensões → Usuários e navegadores
 ID `fdfneajgonojaieieeghflmdcnefhikp`, URL `<base>/download/updates.xml`, instalação forçada.
 
 
-## Massiva: aviso de ligação e busca por CPF/CNPJ (0.27.0)
+## Massiva e AutoISP: aviso de ligação e busca por CPF/CNPJ (0.28.0)
 
 - **Aviso de ligação:** `native-hook.js` (world MAIN, só em `sebratel.native-infinity.com.br`) escuta os eventos
   `AgentCalled`/`AgentConnect`/`QueueCallerJoin` do socket.io do painel e repassa o telefone a `chamada.js`, que
   mostra um banner com a situação de massiva. Nada é enviado nem alterado na Native.
 - **Busca por CPF/CNPJ:** `busca.js` abre uma caixa no topo de qualquer página com um atalho que a pessoa define no
-  popup (padrão `Alt+Shift+M`). Hoje cobre massiva; AutoISP fica para uma próxima versão.
+  popup (padrão `Alt+Shift+M`). Mostra massiva e as alterações de rede ativas no AutoISP (a partir da 0.28.0).
 - **Servidor:** a extensão chama `POST /ext/massiva/telefone` e `/ext/massiva/documento` na native-api (token Google
   da extensão). A native-api consulta o gateway da Sebratel com Basic: defina na stack
   `MASSIVA_GATEWAY_URL`, `MASSIVA_GATEWAY_USER` e `MASSIVA_GATEWAY_PASSWORD`. Sem elas a rota responde 503. A
@@ -55,6 +55,7 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
 - `0.23.0` a `0.26.0`: existiram só em builds locais (pasta `app/tma-tme-extension`, fora do repositório; a `0.26.0` foi
   empacotada com a chave errada). A `0.23.0` chegou a ser publicada em staging por engano e foi substituída.
 - `0.27.0`: primeira com aviso de massiva e busca por CPF/CNPJ.
+- `0.28.0`: acrescenta as alterações de rede do AutoISP ao aviso e à busca.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

@@ -94,6 +94,7 @@
     painel.corpo.replaceChildren();
     painel.caixa.className = "caixa";
     const quem = r.telefone ? `Telefone ${r.telefone}` : r.documento ? `Documento ${r.documento}` : "";
+    const naoAchou = r.status === "cliente_nao_encontrado" || (!r.status && !r.em_massiva);
     if (r.status === "em_massiva") {
       painel.caixa.classList.add("massiva");
       painel.corpo.append(linha("status", "Cliente em MASSIVA"));
@@ -104,6 +105,10 @@
       }
       const n = (r.contratos_em_massiva || []).length;
       if (n > 1) painel.corpo.append(linha("nota", `${n} contratos afetados.`));
+    } else if (r.status === "sem_massiva" && r.em_autoisp) {
+      // Sem massiva, mas com alteração de rede ativa no AutoISP: o atendente precisa saber.
+      painel.caixa.classList.add("aviso");
+      painel.corpo.append(linha("status", "Alteração de rede (AutoISP)"));
     } else if (r.status === "sem_massiva") {
       painel.caixa.classList.add("livre");
       painel.corpo.append(linha("status", "Sem massiva"));
@@ -112,12 +117,42 @@
       painel.caixa.classList.add("aviso");
       painel.corpo.append(linha("status", "Telefone em vários cadastros"));
       painel.corpo.append(linha("detalhe", "Não identifica o cliente. Confirme o CPF/CNPJ e busque pelo atalho."));
-    } else {
+    } else if (naoAchou) {
       painel.corpo.append(linha("status", "Cliente não localizado"));
       painel.corpo.append(linha("detalhe", "Nenhum contrato com autenticação neste cadastro."));
     }
+    autoisp(painel, r);
     if (quem) painel.corpo.append(linha("nota", quem));
     aoFim?.();
+  }
+
+  /** "olt_down" -> "olt down"; o AutoISP devolve o tipo em snake_case. */
+  function legivel(texto) {
+    return String(texto || "evento").replace(/_/g, " ");
+  }
+
+  function dataCurta(iso) {
+    const d = iso ? new Date(iso) : null;
+    return d && !Number.isNaN(d.getTime()) ? d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "";
+  }
+
+  /** Eventos de rede do AutoISP que atingem o cliente (só para quem foi localizado no cadastro). */
+  function autoisp(painel, r) {
+    if (r.status === "cliente_nao_encontrado" || r.status === "telefone_compartilhado" || !r.autoisp) return;
+    if (r.autoisp.disponivel === false) {
+      painel.corpo.append(linha("nota", "AutoISP indisponível no momento."));
+      return;
+    }
+    const eventos = r.autoisp.eventos || [];
+    if (!eventos.length) {
+      painel.corpo.append(linha("nota", "AutoISP: sem alteração de rede ativa."));
+      return;
+    }
+    for (const e of eventos.slice(0, 3)) {
+      const desde = dataCurta(e.inicio);
+      painel.corpo.append(linha("detalhe", `AutoISP: ${legivel(e.tipo)} (${e.status || "ativo"})${desde ? `, desde ${desde}` : ""}`));
+    }
+    if (eventos.length > 3) painel.corpo.append(linha("nota", `+${eventos.length - 3} evento(s) no AutoISP.`));
   }
 
   function carregando(painel, texto) {

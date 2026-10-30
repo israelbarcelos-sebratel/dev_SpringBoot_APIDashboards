@@ -52,8 +52,8 @@
       const resp = await chrome.runtime.sendMessage({ type: "massivaTelefone", telefone });
       if (!resp?.ok) throw new Error(resp?.error || "Sem resposta da extensão.");
       ui.resultado(painel, resp.data);
-      // Massiva fica na tela até a pessoa fechar; o resto some sozinho.
-      painel.autoFechar(resp.data.status === "em_massiva" ? 0 : 20000);
+      // Massiva ou alteração de rede ficam na tela até a pessoa fechar; o resto some sozinho.
+      painel.autoFechar(resp.data.status === "em_massiva" || resp.data.em_autoisp ? 0 : 20000);
     } catch (e) {
       ui.erro(painel, e.message || "Tente de novo em instantes.");
       painel.autoFechar(15000);
