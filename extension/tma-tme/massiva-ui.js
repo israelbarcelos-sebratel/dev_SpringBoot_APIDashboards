@@ -85,6 +85,18 @@
     return p;
   }
 
+  /**
+   * O motivo vem do formulário de abertura da massiva (emojis, nome de quem abriu, CTOs, topologia...). O atendente
+   * precisa só do relato: pega o trecho "Relato inicial" e, se o formato for outro, corta o texto sem emojis.
+   */
+  function motivoResumido(texto) {
+    const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu;
+    const bruto = String(texto || "").trim();
+    const achado = bruto.match(/Relato inicial:\s*([\s\S]*?)(?=\s*[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]|$)/u);
+    const base = (achado && achado[1].trim()) || bruto.replace(EMOJI, " ").replace(/\s+/g, " ").trim();
+    return base.length > 160 ? `${base.slice(0, 157)}…` : base;
+  }
+
   function horas(n) {
     return n === 1 ? "1 hora" : `${n} horas`;
   }
@@ -98,7 +110,7 @@
     if (r.status === "em_massiva") {
       painel.caixa.classList.add("massiva");
       painel.corpo.append(linha("status", "Cliente em MASSIVA"));
-      if (r.motivo) painel.corpo.append(linha("detalhe", `Motivo: ${r.motivo}`));
+      if (r.motivo) painel.corpo.append(linha("detalhe", `Motivo: ${motivoResumido(r.motivo)}`));
       if (r.previsao_horas != null) {
         const hora = r.previsao_hora != null ? ` (por volta das ${r.previsao_hora}h)` : "";
         painel.corpo.append(linha("detalhe", `Previsão: ${horas(r.previsao_horas)}${hora}`));
@@ -165,5 +177,5 @@
     painel.caixa.className = "caixa aviso";
   }
 
-  window.SebratelMassivaUI = { criar, resultado, carregando, erro, linha, NOMES };
+  window.SebratelMassivaUI = { criar, resultado, carregando, erro, linha, motivoResumido, NOMES };
 })();
