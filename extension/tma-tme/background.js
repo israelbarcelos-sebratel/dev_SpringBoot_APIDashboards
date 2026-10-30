@@ -94,16 +94,16 @@ async function verificarAtualizacao() {
 const TAMANHOS_ICONE = [16, 32, 48, 128];
 let iconeDouradoAtual = null;
 
-/** Troca o vermelho da logo por dourado (matiz 44°), mantendo brilho e sombras; o cinza das peças não muda. */
+/** Troca o vermelho da logo por dourado (matiz 41°, saturação 82%), mantendo brilho e sombras; o cinza das peças não muda. */
 function douradoNosVermelhos(px) {
   for (let i = 0; i < px.length; i += 4) {
     const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
     if (px[i + 3] === 0 || d < 0.12 || max !== r) continue; // transparente, cinza ou fora do vermelho
-    const sat = d / (1 - Math.abs(2 * l - 1) || 1);
-    const h = 44 / 60; // matiz dourada, em sextos de volta
-    const c = (1 - Math.abs(2 * l - 1)) * Math.min(1, sat * 1.05);
-    const x = c * (1 - Math.abs((h % 2) - 1)), m = l - c / 2;
+    const h = 41 / 60; // matiz do ouro (o amarelo puro fica em 60°), em sextos de volta
+    const ll = l * 0.96; // um tom abaixo do vermelho: ouro, não amarelo
+    const c = (1 - Math.abs(2 * ll - 1)) * 0.82; // saturação alta, mas não total
+    const x = c * (1 - Math.abs((h % 2) - 1)), m = ll - c / 2;
     px[i] = Math.round((c + m) * 255);
     px[i + 1] = Math.round((x + m) * 255);
     px[i + 2] = Math.round(m * 255);
