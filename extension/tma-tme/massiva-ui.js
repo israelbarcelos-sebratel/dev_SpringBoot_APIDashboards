@@ -134,6 +134,7 @@
       painel.corpo.append(linha("detalhe", "Nenhum contrato com autenticação neste cadastro."));
     }
     autoisp(painel, r);
+    ultimasHoras(painel, r);
     if (quem) painel.corpo.append(linha("nota", quem));
     aoFim?.();
   }
@@ -167,6 +168,28 @@
     if (eventos.length > 3) painel.corpo.append(linha("nota", `+${eventos.length - 3} evento(s) no AutoISP.`));
   }
 
+  /** Massivas e eventos de rede já encerrados nas últimas horas que atingiram o cliente (contexto para o atendente). */
+  function ultimasHoras(painel, r) {
+    if (r.status === "cliente_nao_encontrado" || r.status === "telefone_compartilhado") return;
+    const massivas = r.historico || [];
+    const eventos = (r.autoisp && r.autoisp.recentes) || [];
+    if (!massivas.length && !eventos.length) return;
+    const h = r.historico_horas || (r.autoisp && r.autoisp.recentes_horas) || 6;
+    painel.corpo.append(linha("nota", `Nas últimas ${h} horas:`));
+    for (const m of massivas.slice(0, 3)) {
+      const de = dataCurta(m.aberta_em);
+      const ate = m.encerrada_em ? ` até ${dataCurta(m.encerrada_em)}` : "";
+      painel.corpo.append(linha("detalhe", `Massiva ${m.protocolo} (${m.status || "?"}): ${de}${ate}`));
+    }
+    for (const e of eventos.slice(0, 3)) {
+      const de = dataCurta(e.inicio);
+      const ate = e.fim ? ` até ${dataCurta(e.fim)}` : "";
+      painel.corpo.append(linha("detalhe", `AutoISP ${legivel(e.tipo)}: ${de}${ate}`));
+    }
+    const mais = Math.max(0, massivas.length - 3) + Math.max(0, eventos.length - 3);
+    if (mais) painel.corpo.append(linha("nota", `+${mais} registro(s) no período.`));
+  }
+
   function carregando(painel, texto) {
     painel.corpo.replaceChildren(linha("detalhe", texto));
     painel.caixa.className = "caixa";
@@ -177,5 +200,5 @@
     painel.caixa.className = "caixa aviso";
   }
 
-  window.SebratelMassivaUI = { criar, resultado, carregando, erro, linha, motivoResumido, NOMES };
+  window.SebratelMassivaUI = { criar, resultado, carregando, erro, linha, motivoResumido, ultimasHoras, NOMES };
 })();
