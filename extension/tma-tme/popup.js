@@ -201,6 +201,61 @@ chrome.storage.local.get(["sebratelWidgetState"], (r) => {
   if (hidden !== undefined || autoAbrir !== undefined) chrome.storage.local.set({ sebratelWidgetState: estado });
 });
 
+// --- Massiva: aviso de ligação, código do agente e atalho da busca (guardados só neste navegador) ---
+const MZ_KEY = "sebratelMassiva";
+const MZ_ATALHO_PADRAO = "Alt+Shift+M";
+
+async function mzLer() {
+  const r = await chrome.storage.local.get([MZ_KEY]);
+  return r[MZ_KEY] || {};
+}
+
+async function mzSalvar(patch) {
+  await chrome.storage.local.set({ [MZ_KEY]: { ...(await mzLer()), ...patch } });
+}
+
+async function mzMostrar() {
+  const cfg = await mzLer();
+  $("mz-aviso").checked = cfg.avisoLigacao !== false;
+  $("mz-agente").value = cfg.agente || "";
+  $("mz-atalho").value = cfg.atalho || MZ_ATALHO_PADRAO;
+}
+
+/** Mesma descrição de tecla do busca.js ("Alt+Shift+M"); vazio se for só modificador ou tecla sem suporte. */
+function mzDescrever(ev) {
+  const cod = ev.code || "";
+  let tecla = "";
+  if (/^Key[A-Z]$/.test(cod)) tecla = cod.slice(3);
+  else if (/^Digit\d$/.test(cod)) tecla = cod.slice(5);
+  else if (/^F\d{1,2}$/.test(cod)) tecla = cod;
+  else if (cod === "Space") tecla = "Space";
+  if (!tecla) return "";
+  const mods = [];
+  if (ev.ctrlKey) mods.push("Ctrl");
+  if (ev.altKey) mods.push("Alt");
+  if (ev.shiftKey) mods.push("Shift");
+  if (ev.metaKey) mods.push("Meta");
+  // Tecla solta (sem modificador) atrapa a digitação normal; só F1–F12 podem ir sozinhas.
+  if (!mods.length && !/^F\d{1,2}$/.test(tecla)) return "";
+  return [...mods, tecla].join("+");
+}
+
+$("mz-aviso").addEventListener("change", (e) => mzSalvar({ avisoLigacao: e.target.checked }));
+$("mz-agente").addEventListener("change", (e) => mzSalvar({ agente: e.target.value.replace(/\D/g, "") }));
+$("mz-atalho").addEventListener("keydown", async (ev) => {
+  if (ev.key === "Tab") return;
+  ev.preventDefault();
+  const atalho = mzDescrever(ev);
+  if (!atalho) return;
+  $("mz-atalho").value = atalho;
+  await mzSalvar({ atalho });
+});
+$("mz-padrao").addEventListener("click", async () => {
+  await mzSalvar({ atalho: MZ_ATALHO_PADRAO });
+  $("mz-atalho").value = MZ_ATALHO_PADRAO;
+});
+mzMostrar();
+
 $("logout-btn").addEventListener("click", async () => {
   const token = await SebratelApi.getToken(false);
   if (token) {

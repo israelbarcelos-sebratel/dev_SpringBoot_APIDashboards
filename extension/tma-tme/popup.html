@@ -207,6 +207,23 @@
         </details>
       </div>
 
+      <!-- 5b. Massiva: aviso de ligação e busca por CPF/CNPJ -->
+      <div class="card">
+        <div class="section-marker">Massiva</div>
+        <label style="display:flex; gap:8px; align-items:center; font-weight:500">
+          <input type="checkbox" id="mz-aviso" style="width:auto; margin:0" />
+          Avisar se quem liga está em massiva
+        </label>
+        <p class="muted" style="margin:6px 0 12px">Aparece no topo da Native quando uma ligação chega.</p>
+        <label for="mz-agente">Meu código de agente (opcional)</label>
+        <input id="mz-agente" inputmode="numeric" maxlength="6" placeholder="ex.: 1234" />
+        <p class="muted" style="margin:-6px 0 12px">Se preencher, o aviso só aparece nas ligações do seu agente.</p>
+        <label for="mz-atalho">Atalho da busca por CPF/CNPJ</label>
+        <input id="mz-atalho" readonly placeholder="Clique e pressione as teclas" />
+        <p class="muted" style="margin:-6px 0 12px">Funciona em qualquer página. Use Ctrl, Alt ou Shift com uma letra, número ou F1–F12.</p>
+        <button id="mz-padrao" class="btn btn-secondary">Voltar ao atalho padrão (Alt+Shift+M)</button>
+      </div>
+
       <!-- 6. Conta -->
       <div class="card">
         <div class="section-marker">Sua conta</div>

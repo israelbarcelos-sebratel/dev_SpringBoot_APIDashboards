@@ -85,6 +85,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
+  if (msg?.type === "massivaTelefone" || msg?.type === "massivaDocumento") {
+    // Aviso de ligação e busca por CPF/CNPJ: o content script não tem chrome.identity, pede aqui.
+    const consulta = msg.type === "massivaTelefone"
+      ? SebratelApi.massivaTelefone(msg.telefone)
+      : SebratelApi.massivaDocumento(msg.documento);
+    consulta
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
   if (msg?.type !== "getMetrics") return false;
   SebratelApi.getMetrics()
     .then((data) => sendResponse({ ok: true, data }))

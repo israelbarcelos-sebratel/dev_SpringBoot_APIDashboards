@@ -31,3 +31,16 @@ requisição. Em ambientes compartilhados, defina.
 
 Dispositivos → Chrome → Aplicativos e extensões → Usuários e navegadores → (UO) → `+` → "Adicionar por URL":
 ID `fdfneajgonojaieieeghflmdcnefhikp`, URL `<base>/download/updates.xml`, instalação forçada.
+
+
+## Massiva: aviso de ligação e busca por CPF/CNPJ (0.23.0)
+
+- **Aviso de ligação:** `native-hook.js` (world MAIN, só em `sebratel.native-infinity.com.br`) escuta os eventos
+  `AgentCalled`/`AgentConnect`/`QueueCallerJoin` do socket.io do painel e repassa o telefone a `chamada.js`, que
+  mostra um banner com a situação de massiva. Nada é enviado nem alterado na Native.
+- **Busca por CPF/CNPJ:** `busca.js` abre uma caixa no topo de qualquer página com um atalho que a pessoa define no
+  popup (padrão `Alt+Shift+M`). Hoje cobre massiva; AutoISP fica para uma próxima versão.
+- **Servidor:** a extensão chama `POST /ext/massiva/telefone` e `/ext/massiva/documento` na native-api (token Google
+  da extensão). A native-api consulta o gateway da Sebratel com Basic: defina na stack
+  `MASSIVA_GATEWAY_URL`, `MASSIVA_GATEWAY_USER` e `MASSIVA_GATEWAY_PASSWORD`. Sem elas a rota responde 503. A
+  credencial nunca vai para a extensão.

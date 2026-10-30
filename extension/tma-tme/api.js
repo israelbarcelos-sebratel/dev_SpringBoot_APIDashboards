@@ -82,6 +82,16 @@ const SebratelApi = {
     return this.request(base, `/ext/widget/detalhe${q}`);
   },
 
+  /** POST /ext/massiva/telefone: situação de massiva de quem ligou (o servidor consulta o gateway). */
+  massivaTelefone(telefone) {
+    return this.request(this.NATIVE, "/ext/massiva/telefone", { method: "POST", body: { telefone } });
+  },
+
+  /** POST /ext/massiva/documento: situação de massiva de um CPF/CNPJ digitado pelo atendente. */
+  massivaDocumento(documento) {
+    return this.request(this.NATIVE, "/ext/massiva/documento", { method: "POST", body: { documento } });
+  },
+
   async getMetrics() {
     const cfg = await this.getConfig();
     const alvo = cfg.viewingAgent || "";
