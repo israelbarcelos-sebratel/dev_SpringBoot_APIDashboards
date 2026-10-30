@@ -98,6 +98,10 @@ services:
       DB_NAME: "${DB_NAME}"
       DB_USER: "${DB_USER}"
       DB_PASSWORD: "${DB_PASSWORD}"
+      # Consulta de massiva da extensão (/ext/massiva/*): o servidor fala com o gateway; a credencial não vai à extensão.
+      MASSIVA_GATEWAY_URL: "${MASSIVA_GATEWAY_URL:-}"
+      MASSIVA_GATEWAY_USER: "${MASSIVA_GATEWAY_USER:-}"
+      MASSIVA_GATEWAY_PASSWORD: "${MASSIVA_GATEWAY_PASSWORD:-}"
       <<: [*app-db-env, *mail-env]
       ADMIN_EMAILS: "${ADMIN_EMAILS:-}"
       # URL pública deste serviço (sem barra final), escrita no /download/updates.xml. Defina em staging/produção.
