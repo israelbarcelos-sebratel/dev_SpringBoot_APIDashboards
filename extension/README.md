@@ -61,6 +61,7 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   últimas 6 horas, inclusive "não existem outros eventos".
 - `0.30.0`: "Modo de teste" no popup: mostra um aviso também para ligações ignoradas (ramal interno, saída, outro
   agente), com o motivo. Serve para confirmar que o evento da Native chega à extensão.
+- `0.31.0`: o painel não fecha mais sozinho; só pelo botão × ou com 3 cliques fora dele em menos de 1 segundo.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.
