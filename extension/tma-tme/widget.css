@@ -80,6 +80,12 @@
   letter-spacing: 0.01em;
 }
 
+/* Nome dourado enquanto há versão nova a instalar (a logo da barra do Chrome também fica dourada). */
+#sebratel-tma-widget.tem-atualizacao .brand {
+  color: #f5b301;
+  text-shadow: 0 0 6px rgba(245, 179, 1, 0.55);
+}
+
 #sebratel-tma-widget .brand-system {
   opacity: 0.72;
   font-weight: 400;
