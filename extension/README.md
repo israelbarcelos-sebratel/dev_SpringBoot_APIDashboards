@@ -33,7 +33,7 @@ Dispositivos → Chrome → Aplicativos e extensões → Usuários e navegadores
 ID `fdfneajgonojaieieeghflmdcnefhikp`, URL `<base>/download/updates.xml`, instalação forçada.
 
 
-## Massiva: aviso de ligação e busca por CPF/CNPJ (0.23.0)
+## Massiva: aviso de ligação e busca por CPF/CNPJ (0.27.0)
 
 - **Aviso de ligação:** `native-hook.js` (world MAIN, só em `sebratel.native-infinity.com.br`) escuta os eventos
   `AgentCalled`/`AgentConnect`/`QueueCallerJoin` do socket.io do painel e repassa o telefone a `chamada.js`, que
@@ -44,3 +44,17 @@ ID `fdfneajgonojaieieeghflmdcnefhikp`, URL `<base>/download/updates.xml`, instal
   da extensão). A native-api consulta o gateway da Sebratel com Basic: defina na stack
   `MASSIVA_GATEWAY_URL`, `MASSIVA_GATEWAY_USER` e `MASSIVA_GATEWAY_PASSWORD`. Sem elas a rota responde 503. A
   credencial nunca vai para a extensão.
+
+
+## Versões já usadas (não repetir)
+
+O Chrome só atualiza para uma versão **maior**; repetir um número com conteúdo diferente deixa quem já o instalou
+sem receber a mudança, e uma versão menor nunca é instalada por cima de uma maior.
+
+- `0.7.0` a `0.22.0`: histórico do Git (não houve `0.12.0`).
+- `0.23.0` a `0.26.0`: existiram só em builds locais (pasta `app/tma-tme-extension`, fora do repositório; a `0.26.0` foi
+  empacotada com a chave errada). A `0.23.0` chegou a ser publicada em staging por engano e foi substituída.
+- `0.27.0`: primeira com aviso de massiva e busca por CPF/CNPJ.
+
+Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
+local, e suba **acima** dela.
