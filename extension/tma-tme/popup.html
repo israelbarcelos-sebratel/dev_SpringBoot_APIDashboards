@@ -218,6 +218,11 @@
         <label for="mz-agente">Meu código de agente (opcional)</label>
         <input id="mz-agente" inputmode="numeric" maxlength="6" placeholder="ex.: 1234" />
         <p class="muted" style="margin:-6px 0 12px">Se preencher, o aviso só aparece nas ligações do seu agente.</p>
+        <label style="display:flex; gap:8px; align-items:center; font-weight:500">
+          <input type="checkbox" id="mz-diag" style="width:auto; margin:0" />
+          Modo de teste (mostrar ligações ignoradas)
+        </label>
+        <p class="muted" style="margin:6px 0 12px">Mostra um aviso também para ramais internos e saídas, com o motivo de não consultar. Desligue no dia a dia.</p>
         <label for="mz-atalho">Atalho da busca por CPF/CNPJ</label>
         <input id="mz-atalho" readonly placeholder="Clique e pressione as teclas" />
         <p class="muted" style="margin:-6px 0 12px">Funciona em qualquer página. Use Ctrl, Alt ou Shift com uma letra, número ou F1–F12.</p>
