@@ -74,7 +74,6 @@
         const resp = await chrome.runtime.sendMessage({ type: "massivaDocumento", documento });
         if (!resp?.ok) throw new Error(resp?.error || "Sem resposta da extensão.");
         ui.resultado({ corpo: saida, caixa: painel.caixa }, resp.data);
-        saida.append(ui.linha("nota", "Consulta de massiva. AutoISP ainda não faz parte desta busca."));
       } catch (e) {
         ui.erro({ corpo: saida, caixa: painel.caixa }, e.message || "Tente de novo em instantes.");
       } finally {
