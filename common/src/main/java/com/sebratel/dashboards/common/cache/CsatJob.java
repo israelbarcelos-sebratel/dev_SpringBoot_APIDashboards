@@ -60,6 +60,14 @@ public class CsatJob {
         return r;
     }
 
+    /**
+     * One atendente's score today ({@code deHoje}) or over the last {@code dias} days; null when there
+     * is no answer or CSAT isn't configured.
+     */
+    public Nota nota(String nome, boolean deHoje) {
+        return (deHoje ? hoje : periodo).get(nome);
+    }
+
     /** Each answer weighs the same, so the names' averages are weighted by their number of answers. */
     static Nota somar(Map<String, Nota> porAtendente, List<String> nomes) {
         double soma = 0;

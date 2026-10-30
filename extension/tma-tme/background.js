@@ -30,10 +30,21 @@ async function injetar(tabId) {
 // Instalou/atualizou/recarregou a extensão: leva o script às abas abertas, sem precisar de F5 (o
 // widget só aparece nas que estavam marcadas para mostrar).
 // Páginas do Chrome, da Web Store e PDFs recusam a injeção — ignoramos.
+// Também recoloca o painel/busca de massiva e, na Native, o ouvinte de chamadas: as cópias antigas ficaram órfãs
+// (sem ligação com a extensão) e se calam sozinhas. Quem fica sem recuperar é só o hook MAIN da Native, que não
+// depende da extensão e continua vivo.
+const NATIVE_URL = "https://sebratel.native-infinity.com.br/";
 chrome.runtime.onInstalled.addListener(async () => {
   const tabs = await chrome.tabs.query({});
   for (const t of tabs) {
-    if (t.id !== undefined && !t.discarded) injetar(t.id).catch(() => {});
+    if (t.id === undefined || t.discarded) continue;
+    injetar(t.id).catch(() => {});
+    chrome.scripting
+      .executeScript({ target: { tabId: t.id }, files: ["massiva-ui.js", "busca.js"] })
+      .catch(() => {});
+    if (t.url && t.url.startsWith(NATIVE_URL)) {
+      chrome.scripting.executeScript({ target: { tabId: t.id }, files: ["chamada.js"] }).catch(() => {});
+    }
   }
 });
 

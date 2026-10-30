@@ -4,8 +4,9 @@
  * o cadastro dele está em massiva.
  */
 (function () {
-  if (window.__sebratelBuscaAtiva) return;
-  window.__sebratelBuscaAtiva = true;
+  // A trava guarda uma sonda: se a cópia anterior ficou órfã (extensão atualizada), ela responde falso e esta assume.
+  if (window.__sebratelBuscaAtiva?.()) return;
+  window.__sebratelBuscaAtiva = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
 
   const CONFIG_KEY = "sebratelMassiva";
   const ATALHO_PADRAO = "Alt+Shift+M";
@@ -85,14 +86,22 @@
     setTimeout(() => campo.focus(), 0);
   }
 
-  window.addEventListener(
-    "keydown",
-    (ev) => {
-      if (ev.repeat || descrever(ev) !== atalho) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      abrir();
-    },
-    true
-  );
+  // Também abre sem o atalho: botão do widget (mesmo mundo de scripts) e botão do popup (mensagem).
+  window.SebratelBusca = { abrir };
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "abrirBusca") abrir();
+  });
+
+  // Script órfão (extensão atualizada com a aba aberta): o background já injetou uma cópia nova; esta se cala.
+  function aoTeclar(ev) {
+    if (!chrome.runtime?.id) {
+      window.removeEventListener("keydown", aoTeclar, true);
+      return;
+    }
+    if (ev.repeat || descrever(ev) !== atalho) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    abrir();
+  }
+  window.addEventListener("keydown", aoTeclar, true);
 })();

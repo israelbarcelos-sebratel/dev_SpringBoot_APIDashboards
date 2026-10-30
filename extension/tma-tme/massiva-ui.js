@@ -4,7 +4,7 @@
  * Só usa textContent com o que vem do servidor — nada de innerHTML com dado de cliente.
  */
 (function () {
-  if (window.SebratelMassivaUI) return;
+  if (window.SebratelMassivaUI?.vivo?.()) return;
 
   const CSS = `
     :host { all: initial; }
@@ -242,9 +242,13 @@
   }
 
   function erro(painel, texto) {
+    // A extensão foi atualizada com esta aba aberta: o script antigo perdeu a ligação. Só F5 resolve.
+    if (/context invalidated|Receiving end does not exist/i.test(String(texto))) {
+      texto = "A extensão foi atualizada. Recarregue esta página (F5) e tente de novo.";
+    }
     painel.corpo.replaceChildren(linha("status", "Não foi possível consultar"), linha("detalhe", texto));
     painel.caixa.className = "caixa aviso";
   }
 
-  window.SebratelMassivaUI = { criar, resultado, carregando, erro, linha, motivoResumido, ultimasHoras, quandoPrevisto, NOMES };
+  window.SebratelMassivaUI = { vivo: () => { try { return !!chrome.runtime?.id; } catch { return false; } }, criar, resultado, carregando, erro, linha, motivoResumido, ultimasHoras, quandoPrevisto, NOMES };
 })();

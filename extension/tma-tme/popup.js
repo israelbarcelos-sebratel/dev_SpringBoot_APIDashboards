@@ -276,6 +276,26 @@ $("logout-btn").addEventListener("click", async () => {
 
 render();
 
+// --- Busca por CPF/CNPJ sem depender do atalho de teclado ---
+$("busca-btn").addEventListener("click", async () => {
+  const [aba] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!aba?.id) return;
+  const abrir = () => chrome.tabs.sendMessage(aba.id, { type: "abrirBusca" });
+  try {
+    await abrir();
+  } catch {
+    // Aba aberta antes da extensão/atualização (sem o script da busca): injeta e tenta de novo.
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: aba.id }, files: ["massiva-ui.js", "busca.js"] });
+      await abrir();
+    } catch {
+      msg("Esta página não permite a busca (páginas do Chrome e PDFs bloqueiam extensões).");
+      return;
+    }
+  }
+  window.close();
+});
+
 // --- Versão nova: avisa e atualiza sem passar por chrome://extensions ---
 async function checarAtualizacaoPopup() {
   try {

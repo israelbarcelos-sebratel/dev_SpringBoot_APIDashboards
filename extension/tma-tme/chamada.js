@@ -4,8 +4,8 @@
  * servidor da Sebratel com o token Google) e mostramos o resultado num banner no topo da tela.
  */
 (function () {
-  if (window.__sebratelChamadaAtiva) return;
-  window.__sebratelChamadaAtiva = true;
+  if (window.__sebratelChamadaAtiva?.()) return;
+  window.__sebratelChamadaAtiva = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
 
   const CONFIG_KEY = "sebratelMassiva";
   const JANELA_MS = 60000; // mesmo telefone dentro deste prazo = mesma ligação (AgentCalled + AgentConnect)
@@ -121,7 +121,12 @@
 
   window.__sebratelChamadaTeste = { digitadoNaUra, telefoneExterno }; // só para teste/diagnóstico
 
-  window.addEventListener("message", (ev) => {
+  window.addEventListener("message", function aoReceber(ev) {
+    // Script órfão (extensão atualizada com a aba aberta): o background já injetou uma cópia nova; esta se cala.
+    if (!chrome.runtime?.id) {
+      window.removeEventListener("message", aoReceber);
+      return;
+    }
     if (ev.source !== window || ev.origin !== window.location.origin) return;
     const msg = ev.data;
     if (!msg || msg.source !== "sebratel-native-hook" || !msg.dados) return;

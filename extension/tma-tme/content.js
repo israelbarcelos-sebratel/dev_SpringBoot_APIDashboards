@@ -1,8 +1,8 @@
 (function () {
   // O background pode injetar este script de novo (botão "Mostrar" ou atualização da extensão).
   // Se já há um script vivo desta extensão na aba (mesmo "mundo" isolado), não duplica.
-  if (window.__sebratelTmaAtivo) return;
-  window.__sebratelTmaAtivo = true;
+  if (window.__sebratelTmaAtivo?.()) return;
+  window.__sebratelTmaAtivo = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
   // Widget que sobrou de um script órfão (extensão recarregada): sai para o novo assumir.
   document.getElementById("sebratel-tma-widget")?.remove();
 
@@ -41,6 +41,8 @@
   const ICON_TABELA =
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>';
 
+  const ICON_BUSCA =
+    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>';
   const ICON_MINIMIZAR =
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
   const ICON_RESTAURAR =
@@ -109,6 +111,7 @@
       <div class="header">
         <span><span class="status-dot"></span><span class="brand">Sebratel</span><span class="brand-system"> · TMA/TME</span></span>
         <span class="header-actions">
+          <button type="button" class="hbtn busca-btn" title="Buscar massiva por CPF/CNPJ (Alt+Shift+M)">${ICON_BUSCA}</button>
           <button type="button" class="hbtn table-btn" title="Resumo dos últimos dias e atendimentos de hoje">${ICON_TABELA}</button>
           <button type="button" class="hbtn pin-btn" aria-pressed="false">${ICON_PIN}</button>
           <button type="button" class="hbtn min-btn" aria-pressed="false">${ICON_MINIMIZAR}</button>
@@ -197,6 +200,7 @@
     });
 
     el.querySelector(".update-btn").addEventListener("click", () => atualizarExtensao(el));
+    el.querySelector(".busca-btn").addEventListener("click", () => window.SebratelBusca?.abrir());
 
     el.querySelector(".min-btn").addEventListener("click", () => {
       const minimizado = !el.classList.contains("minimizado");

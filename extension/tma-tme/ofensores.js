@@ -255,6 +255,87 @@ Abrir os atendimentos de hoje dessa pessoa` },
   return card;
 }
 
+/** Respostas mínimas da pesquisa para entrar no ranking de CSAT: poucos clientes respondem, então hoje basta 1. */
+const MIN_RESPOSTAS_CSAT = { hoje: 1, "30d": 5 };
+
+const fmtNota = (n) => (n === null || n === undefined ? "—" : n.toFixed(1).replace(".", ","));
+
+/**
+ * CSAT (nota média 1–5 da pesquisa de satisfação sobre o atendente) do sistema escolhido, da menor para a maior.
+ * Só onde a pesquisa está configurada (resp.csat); sem isso o card explica que não há dado, em vez de sumir.
+ */
+function cardCsat(resp) {
+  const sistema = SISTEMAS.find((s) => s.chave === prefs.sistema)?.titulo || "";
+  const card = el("div", { class: "card rank" });
+  const cab = el("div", { class: "rank-head" }, el("div", { class: "section-marker", text: `CSAT · Satisfação do cliente (${sistema})` }));
+  card.append(cab);
+  if (!resp.csat) {
+    cab.append(el("div", { class: "muted", text: "indisponível" }));
+    card.append(el("p", { class: "muted", text: `Sem CSAT por atendente na ${sistema}: a pesquisa de satisfação deste sistema não tem respostas recentes com o nome de quem atendeu.` }));
+    return card;
+  }
+  const corte = resp.csat.satisfeitoMinimo ?? 4;
+  const min = MIN_RESPOSTAS_CSAT[prefs.periodo] ?? 1;
+  const linhas = [];
+  for (const a of resp.atendentes) {
+    const c = a.csat;
+    if (!c || c.amostras < min || !noFiltro(a)) continue;
+    linhas.push({ a, media: c.media, amostras: c.amostras, satisfeitos: c.satisfeitos });
+  }
+  linhas.sort((x, y) => x.media - y.media || y.amostras - x.amostras);
+  linhas.forEach((l, i) => (l.pos = i + 1));
+  const abaixo = linhas.filter((l) => l.media < corte).length;
+  cab.append(
+    el("div", { class: "muted", text: `nota de 1 a 5; satisfeito = nota ${corte} ou mais` }),
+    el("div", { class: `resumo-n ${abaixo ? "bad" : "ok"}`, text: linhas.length ? `${abaixo} de ${linhas.length} abaixo de ${fmtNota(corte)}` : "" })
+  );
+  if (!linhas.length) {
+    card.append(el("p", { class: "muted", text: `Ninguém com ${min} ou mais respostas da pesquisa ${PERIODOS[prefs.periodo].quando}.` }));
+    return card;
+  }
+  const tabela = "rank-csat";
+  const colunas = [
+    { chave: "pos", titulo: "#", inicial: "asc", valor: (l) => l.pos },
+    { chave: "nome", titulo: "Atendente", texto: true, valor: (l) => l.a.nome },
+    { chave: "media", titulo: "CSAT", classe: "metric", inicial: "asc", valor: (l) => l.media },
+    { chave: "sat", titulo: "% satisf.", classe: "metric", valor: (l) => l.satisfeitos / l.amostras },
+    { chave: "n", titulo: "Respostas", classe: "metric", valor: (l) => l.amostras },
+  ];
+  const ordenadas = ordenar(linhas, tabela, colunas);
+  const visiveis = todosVisiveis() ? ordenadas : ordenadas.slice(0, TOP);
+  const tbody = el("tbody");
+  visiveis.forEach((l) => {
+    const [pessoa, setor] = separarSetor(l.a);
+    const nome = el("div", { class: "link", role: "link", tabindex: "0", title: `${l.a.nome}\nAbrir os atendimentos de hoje dessa pessoa` },
+      el("span", { class: "pessoa", text: pessoa }),
+      setor ? el("span", { class: "setor", text: setor }) : null);
+    nome.addEventListener("click", () => abrirDetalhe(l.a.nome));
+    nome.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        abrirDetalhe(l.a.nome);
+      }
+    });
+    const ruim = l.media < corte;
+    tbody.append(
+      el("tr", {},
+        el("td", { class: "pos", text: String(l.pos) }),
+        el("td", { class: "nome" }, nome),
+        el("td", { class: "metric " + (ruim ? "bad" : "ok"), text: (ruim ? "▼ " : "") + fmtNota(l.media) }),
+        el("td", { class: "metric", title: `${l.satisfeitos} de ${l.amostras} resposta(s) com nota ${corte} ou mais`, text: `${Math.round((100 * l.satisfeitos) / l.amostras)}%` }),
+        el("td", { class: "metric n", text: String(l.amostras) })
+      )
+    );
+  });
+  const wrap = el("div", { class: "table-wrap" });
+  wrap.append(el("table", {}, el("thead", {}, cabecalho(tabela, colunas)), tbody));
+  card.append(wrap);
+  if (!todosVisiveis() && linhas.length > TOP) {
+    card.append(el("p", { class: "legend", text: `Mostrando os ${TOP} ${prefs.ordem?.[tabela] ? "primeiros" : "piores"} de ${linhas.length}.` }));
+  }
+  return card;
+}
+
 /** Supervisão só se filtra dentro de um setor de suporte. */
 const ehSuporte = () => /suporte/i.test(prefs.setor || "");
 
@@ -420,6 +501,7 @@ function desenhar() {
       ? "Mesmos números que cada atendente vê no widget, só de hoje — no começo do dia poucos atendimentos entraram, por isso o mínimo. "
       : "Médias dos últimos 30 dias (inclui hoje), recalculadas a cada 10 minutos. ") +
     "TME e TMA: vermelho acima do limite do sistema. TMEA: âmbar acima da média dos colegas do mesmo setor nos últimos 30 dias. " +
+    "CSAT: nota média da pesquisa de satisfação sobre o atendente (1 a 5), das menores para as maiores; vermelho abaixo de 4. " +
     "Clique no nome para ver os atendimentos de hoje da pessoa.";
   const alvo = $("rankings");
   alvo.innerHTML = "";
@@ -435,6 +517,7 @@ function desenhar() {
   }
   desenharFiltros(resp);
   for (const m of METRICAS) alvo.append(cardMetrica(resp, m));
+  alvo.append(cardCsat(resp));
   const hora = resp.ultimoRegistro ? resp.ultimoRegistro.slice(11, 16) : "—";
   const total = resp.atendentes.reduce((s, a) => s + a.atendimentos, 0).toLocaleString("pt-BR");
   const calc = resp.calculadoEm ? resp.calculadoEm.slice(11, 16) : "—";
