@@ -1,8 +1,8 @@
 (function () {
   // O background pode injetar este script de novo (botão "Mostrar" ou atualização da extensão).
   // Se já há um script vivo desta extensão na aba (mesmo "mundo" isolado), não duplica.
-  if (window.__sebratelTmaAtivo) return;
-  window.__sebratelTmaAtivo = true;
+  if (window.__sebratelTmaAtivo?.()) return;
+  window.__sebratelTmaAtivo = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
   // Widget que sobrou de um script órfão (extensão recarregada): sai para o novo assumir.
   document.getElementById("sebratel-tma-widget")?.remove();
 
