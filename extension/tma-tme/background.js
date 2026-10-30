@@ -52,7 +52,8 @@ chrome.runtime.onInstalled.addListener(async () => {
 // O Chrome só atualiza a extensão sozinho de tempos em tempos; aqui comparamos a versão instalada com a que o
 // servidor publica (/download/updates.xml) para avisar a pessoa e deixá-la pedir a atualização na hora.
 const ATUALIZACAO_KEY = "sebratelAtualizacao";
-const VERIFICAR_A_CADA_MS = 30 * 60 * 1000;
+// 1 minuto: o updates.xml tem poucas centenas de bytes, e assim a logo dourada aparece para todos logo depois do deploy.
+const VERIFICAR_A_CADA_MS = 60 * 1000;
 
 function versaoMaior(a, b) {
   const x = String(a).split(".").map(Number);
