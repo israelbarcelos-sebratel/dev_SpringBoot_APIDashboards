@@ -71,6 +71,10 @@ services:
       ADMIN_EMAILS: "${ADMIN_EMAILS:-}"
       # URL pública deste serviço (sem barra final), escrita no /download/updates.xml. Defina em staging/produção.
       APP_EXTENSAO_BASE_URL: "${EXTENSAO_BASE_URL:-}"
+      # Resumo do cliente (/ext/cliente/resumo) consulta o cadastro no MassivasService pelo gateway.
+      MASSIVA_GATEWAY_URL: "${MASSIVA_GATEWAY_URL:-}"
+      MASSIVA_GATEWAY_USER: "${MASSIVA_GATEWAY_USER:-}"
+      MASSIVA_GATEWAY_PASSWORD: "${MASSIVA_GATEWAY_PASSWORD:-}"
     depends_on:
       app-db:
         condition: service_healthy

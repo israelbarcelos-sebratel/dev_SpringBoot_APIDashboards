@@ -78,6 +78,9 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   cópias antigas se calam), sem F5. A `0.35.0` não chegou a ser publicada.
 - `0.36.0`: o painel de ligação e a busca por CPF/CNPJ ganham o **Histórico do cliente (12 meses)**: nível de
   recorrência, protocolos por janela de tempo, assuntos presumidos por etiquetas, CSAT e sugestões (ex.: visita técnica).
+- `0.37.0`: o histórico cruza tudo pelo mesmo cliente: CPF/CNPJ **e** todos os telefones do cadastro do ERP (`people`,
+  num formato único DDD+número), protocolos da Matrix com o assunto de cada um, massivas em que ele esteve
+  (`massiva_history`), ligações da Native (recebidas, sem atendimento, retornos da equipe) e o CSAT.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

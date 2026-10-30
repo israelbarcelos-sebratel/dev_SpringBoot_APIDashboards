@@ -25,6 +25,9 @@ spring:
       mail.smtp.writetimeout: 10000
 
 app:
+  # Ligações do cliente na Native (/ext/cliente/ligacoes): db_native dos últimos 90 dias, pelos telefones do cadastro.
+  cliente-ligacoes:
+    ativo: true
   db-schema: ${DB_NAME:API_WebDeveloper}
   # Login SSO da extensão de Chrome (ver ExtController). O client id é público, não é segredo.
   google-client-id: ${GOOGLE_CLIENT_ID:243355917213-oa2b664bbmlskjkb9losafj6a8rsbtb2.apps.googleusercontent.com}

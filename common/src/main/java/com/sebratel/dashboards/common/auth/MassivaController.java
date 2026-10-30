@@ -43,6 +43,10 @@ public class MassivaController {
         }
         try {
             JsonNode data = gateway.consultar(caminho, Map.of(campo, valor));
+            // Os telefones do cadastro servem só aos resumos do servidor; a extensão não os recebe.
+            if (data.path("perfil") instanceof com.fasterxml.jackson.databind.node.ObjectNode perfil) {
+                perfil.remove("telefones");
+            }
             return ResponseEntity.ok(data);
         } catch (FalhaGateway e) {
             return ResponseEntity.status(e.status()).body(Map.of("error", e.getMessage()));

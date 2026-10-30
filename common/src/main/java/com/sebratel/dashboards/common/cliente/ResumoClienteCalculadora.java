@@ -70,6 +70,7 @@ public final class ResumoClienteCalculadora {
                     listaTemas.add(t);
                 });
         r.put("temas", listaTemas);
+        r.put("ultimos", ultimos(itens));
 
         Map<String, Object> csat = csat(notas, agora);
         r.put("csat", csat);
@@ -86,7 +87,7 @@ public final class ResumoClienteCalculadora {
 
     // ---- itens ----
 
-    private record Item(int dias, List<TemaAtendimento> temas) {}
+    private record Item(int dias, List<TemaAtendimento> temas, String servico) {}
 
     private static List<Item> itens(List<Protocolo> brutos, LocalDateTime agora) {
         Set<String> vistos = new LinkedHashSet<>();
@@ -100,10 +101,23 @@ public final class ResumoClienteCalculadora {
                 continue;
             }
             int dias = (int) Math.max(0, Duration.between(p.data(), agora).toDays());
-            itens.add(new Item(dias, TemaAtendimento.detectar(p.servico(), p.tags(), p.classificacao())));
+            itens.add(new Item(dias, TemaAtendimento.detectar(p.servico(), p.tags(), p.classificacao()), p.servico()));
         }
         itens.sort(Comparator.comparingInt(Item::dias));
         return itens;
+    }
+
+    /** Os protocolos mais recentes com o assunto presumido de cada um: o "teor" que o atendente lê de relance. */
+    private static List<Map<String, Object>> ultimos(List<Item> itens) {
+        List<Map<String, Object>> l = new ArrayList<>();
+        for (Item i : itens.subList(0, Math.min(5, itens.size()))) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ha_dias", i.dias);
+            m.put("assuntos", i.temas.isEmpty() ? List.of("não identificado") : i.temas.stream().map(TemaAtendimento::rotulo).toList());
+            m.put("servico", i.servico == null ? null : i.servico.replaceFirst("^\\d+-SEBRATEL[- ]*", "").trim());
+            l.add(m);
+        }
+        return l;
     }
 
     private static int janelaPrincipal(List<Item> itens) {
