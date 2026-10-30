@@ -74,6 +74,10 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
 - `0.35.0`: tela de gestor (ofensores) ganha o card **CSAT** (menores notas primeiro, Native e Matrix; a Native só mostra
   dado quando a pesquisa dela tiver respostas com o nome do atendente) e a busca por CPF/CNPJ abre também por botão
   (lupa no widget e "Buscar CPF/CNPJ nesta aba" no popup), sem depender do atalho de teclado.
+- `0.35.1`: a extensão se recupera sozinha ao ser atualizada com abas abertas (reinjeta busca e aviso de chamada; as
+  cópias antigas se calam), sem F5. A `0.35.0` não chegou a ser publicada.
+- `0.36.0`: o painel de ligação e a busca por CPF/CNPJ ganham o **Histórico do cliente (12 meses)**: nível de
+  recorrência, protocolos por janela de tempo, assuntos presumidos por etiquetas, CSAT e sugestões (ex.: visita técnica).
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

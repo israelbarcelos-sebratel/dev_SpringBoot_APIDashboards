@@ -59,6 +59,8 @@
     form.append(campo, botao);
     const saida = document.createElement("div");
     painel.corpo.append(form, saida);
+    // Mesmo objeto em todas as buscas: o contador interno descarta o histórico de uma busca já substituída.
+    const alvo = { corpo: saida, caixa: painel.caixa, host: painel.host };
 
     // Esc fecha; as teclas digitadas não podem vazar para os atalhos da página.
     campo.addEventListener("keydown", (ev) => {
@@ -75,6 +77,7 @@
         const resp = await chrome.runtime.sendMessage({ type: "massivaDocumento", documento });
         if (!resp?.ok) throw new Error(resp?.error || "Sem resposta da extensão.");
         ui.resultado({ corpo: saida, caixa: painel.caixa }, resp.data);
+        ui.anexarResumo(alvo, { documento });
       } catch (e) {
         ui.erro({ corpo: saida, caixa: painel.caixa }, e.message || "Tente de novo em instantes.");
       } finally {

@@ -28,6 +28,13 @@
     .livre .status { color: #0f7a37; }
     .detalhe { margin: 0; color: #2a2a28; overflow-wrap: anywhere; }
     .nota { margin: 6px 0 0; font-size: 12px; color: #5e5b50; }
+    .hist { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid #e0dacb; }
+    .hist-titulo { margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #5e5b50; }
+    .hist-nivel { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #e7f5ec; color: #0f7a37; }
+    .hist-nivel.n1 { background: #fef3c7; color: #92400e; }
+    .hist-nivel.n2 { background: #ffedd5; color: #c2410c; }
+    .hist-nivel.n3 { background: #fee2e2; color: #b91c1c; }
+    .hist-rec { margin: 4px 0 0; font-weight: 600; color: #111; }
     form { display: flex; gap: 8px; margin: 8px 0 4px; }
     input { flex: 1; min-width: 0; font: inherit; padding: 9px 11px; border: 1px solid #e0dacb; border-radius: 6px; outline: none; }
     input:focus { border-color: #ffb000; box-shadow: 0 0 0 3px rgba(255,176,0,.45); }
@@ -181,6 +188,44 @@
     aoFim?.();
   }
 
+  /**
+   * Histórico do cliente (protocolos dos últimos 12 meses, assuntos presumidos e CSAT), vindo do servidor num pedido à
+   * parte para não atrasar o aviso de massiva. Falha em silêncio: o aviso de massiva é o que importa.
+   */
+  async function anexarResumo(painel, pedido) {
+    const id = (painel.resumoId = (painel.resumoId || 0) + 1);
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: "clienteResumo", ...pedido });
+      if (!resp?.ok || painel.resumoId !== id || !painel.host.isConnected) return;
+      resumoCliente(painel, resp.data);
+    } catch {
+      /* sem histórico: nada a mostrar */
+    }
+  }
+
+  function resumoCliente(painel, d) {
+    painel.corpo.querySelector(".hist")?.remove();
+    const bloco = document.createElement("div");
+    bloco.className = "hist";
+    const titulo = document.createElement("p");
+    titulo.className = "hist-titulo";
+    titulo.textContent = "Histórico do cliente (12 meses)";
+    const nivel = document.createElement("span");
+    nivel.className = `hist-nivel n${d.nivel || 0}`;
+    nivel.textContent = `Recorrência: ${d.nivel_rotulo}`;
+    bloco.append(titulo, nivel);
+    for (const f of d.frases || []) bloco.append(linha("detalhe", f));
+    for (const r of d.recomendacoes || []) {
+      const p = linha("detalhe", r);
+      p.classList.add("hist-rec");
+      bloco.append(p);
+    }
+    if (d.ultimo_contato_dias != null) {
+      bloco.append(linha("nota", `Último protocolo: ${d.ultimo_contato_dias === 0 ? "hoje" : `há ${d.ultimo_contato_dias} dia(s)`}. Assuntos presumidos por etiquetas, não pelo texto da conversa.`));
+    }
+    painel.corpo.append(bloco);
+  }
+
   /** "olt_down" -> "olt down"; o AutoISP devolve o tipo em snake_case. */
   function legivel(texto) {
     return String(texto || "evento").replace(/_/g, " ");
@@ -237,6 +282,7 @@
   }
 
   function carregando(painel, texto) {
+    painel.resumoId = (painel.resumoId || 0) + 1; // histórico de uma consulta anterior que ainda não chegou fica descartado
     painel.corpo.replaceChildren(linha("detalhe", texto));
     painel.caixa.className = "caixa";
   }
@@ -250,5 +296,5 @@
     painel.caixa.className = "caixa aviso";
   }
 
-  window.SebratelMassivaUI = { vivo: () => { try { return !!chrome.runtime?.id; } catch { return false; } }, criar, resultado, carregando, erro, linha, motivoResumido, ultimasHoras, quandoPrevisto, NOMES };
+  window.SebratelMassivaUI = { vivo: () => { try { return !!chrome.runtime?.id; } catch { return false; } }, criar, resultado, anexarResumo, carregando, erro, linha, motivoResumido, ultimasHoras, quandoPrevisto, NOMES };
 })();
