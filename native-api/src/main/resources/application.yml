@@ -52,6 +52,10 @@ app:
     outro-sistema: { tabela: db_matrix, coluna: atendente, data-coluna: data_entrada }
   widget:
     data-coluna: data_hora
+    # CSAT da Native: DESLIGADO de propósito. db_native_avaliations tem as mesmas colunas da Matrix, mas hoje só 44
+    # respostas (todas de dez/2025) e todas com nom_agente = null; sem nome de atendente não há CSAT por pessoa.
+    # Quando a pesquisa da Native voltar a gravar o atendente, é só copiar o bloco "csat" da matrix-api para cá
+    # (tabela db_native_avaliations): a tela de gestor e o widget passam a mostrar sozinhos.
     tempos:
       tma:
         hms: atendimento

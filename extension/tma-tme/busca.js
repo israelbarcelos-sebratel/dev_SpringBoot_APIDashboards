@@ -85,6 +85,12 @@
     setTimeout(() => campo.focus(), 0);
   }
 
+  // Também abre sem o atalho: botão do widget (mesmo mundo de scripts) e botão do popup (mensagem).
+  window.SebratelBusca = { abrir };
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "abrirBusca") abrir();
+  });
+
   window.addEventListener(
     "keydown",
     (ev) => {

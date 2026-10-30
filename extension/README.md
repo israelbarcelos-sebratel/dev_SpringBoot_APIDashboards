@@ -71,6 +71,9 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   nova**: a extensão compara a versão instalada com a do `updates.xml` do servidor e, se houver uma mais nova, mostra
   um aviso no widget e no popup com o botão **Atualizar**, que pede a atualização ao Chrome e recarrega a extensão sem
   passar por `chrome://extensions`. Depois de atualizar, dê F5 na Native para o hook de eventos ser reinstalado.
+- `0.35.0`: tela de gestor (ofensores) ganha o card **CSAT** (menores notas primeiro, Native e Matrix; a Native só mostra
+  dado quando a pesquisa dela tiver respostas com o nome do atendente) e a busca por CPF/CNPJ abre também por botão
+  (lupa no widget e "Buscar CPF/CNPJ nesta aba" no popup), sem depender do atalho de teclado.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

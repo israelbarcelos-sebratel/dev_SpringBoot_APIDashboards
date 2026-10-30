@@ -1,5 +1,6 @@
 package com.sebratel.dashboards.common.auth;
 
+import com.sebratel.dashboards.common.cache.CsatJob;
 import com.sebratel.dashboards.common.cache.PausasComportamento;
 import com.sebratel.dashboards.common.cache.ReferenciaMensalJob;
 import com.sebratel.dashboards.common.cache.TemposHojeJob;
@@ -39,10 +40,13 @@ public class OfensoresController {
     private final TmeaNovaRegra tmeaNova;
     private final PausasComportamento pausas;
     private final EquipePlanilha equipe;
+    private final CsatJob csat;
 
     public OfensoresController(UsuarioRepository usuarios, TemposHojeJob temposHoje, ReferenciaMensalJob referencia,
                                WidgetProperties widgetProperties, TableGroupProperties groupProperties,
-                               TmeaNovaRegra tmeaNova, PausasComportamento pausas, EquipePlanilha equipe) {
+                               TmeaNovaRegra tmeaNova, PausasComportamento pausas, EquipePlanilha equipe,
+                               CsatJob csat) {
+        this.csat = csat;
         this.equipe = equipe;
         this.tmeaNova = tmeaNova;
         this.pausas = pausas;
@@ -91,6 +95,8 @@ public class OfensoresController {
             item.put("atendimentos", dados.atendimentos().getOrDefault(nome, 0L));
             item.put("tempos", t);
             item.put("tmeaReferencia", referencia.tmeaSetor(List.of(nome)));
+            // CSAT (nota 1–5 da pesquisa) no mesmo período: só onde a pesquisa está configurada.
+            item.put("csat", csat.configurado() ? csat.nota(nome, hojeApenas) : null);
             atendentes.add(item);
         });
 
@@ -106,12 +112,25 @@ public class OfensoresController {
         resp.put("periodo", hojeApenas ? "hoje" : "30d");
         resp.put("dias", hojeApenas ? 1 : referencia.dias());
         resp.put("metas", metas);
+        resp.put("csat", csatResumo());
         resp.put("atendentes", atendentes);
         resp.put("equipeAtualizadaEm", equipe.atualizadoEm());
         resp.put("equipe", equipe.pessoas());
         resp.put("ultimoRegistro", hoje.ultimoRegistro());
         resp.put("calculadoEm", hojeApenas ? hoje.calculadoEm() : referencia.periodoCalculadoEm());
         return resp;
+    }
+
+    /** How the CSAT is read ({@code satisfeitoMinimo}, {@code formula}); null where the survey isn't configured. */
+    private Map<String, Object> csatResumo() {
+        if (!csat.configurado()) {
+            return null;
+        }
+        WidgetProperties.Csat c = widgetProperties.getCsat();
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("satisfeitoMinimo", c.getSatisfeitoMinimo());
+        r.put("formula", c.getFormula());
+        return r;
     }
 
     /**
