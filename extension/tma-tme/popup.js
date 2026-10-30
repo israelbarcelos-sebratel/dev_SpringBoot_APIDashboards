@@ -218,6 +218,7 @@ async function mzMostrar() {
   const cfg = await mzLer();
   $("mz-aviso").checked = cfg.avisoLigacao !== false;
   $("mz-agente").value = cfg.agente || "";
+  $("mz-diag").checked = cfg.diagnostico === true;
   $("mz-atalho").value = cfg.atalho || MZ_ATALHO_PADRAO;
 }
 
@@ -241,6 +242,7 @@ function mzDescrever(ev) {
 }
 
 $("mz-aviso").addEventListener("change", (e) => mzSalvar({ avisoLigacao: e.target.checked }));
+$("mz-diag").addEventListener("change", (e) => mzSalvar({ diagnostico: e.target.checked }));
 $("mz-agente").addEventListener("change", (e) => mzSalvar({ agente: e.target.value.replace(/\D/g, "") }));
 $("mz-atalho").addEventListener("keydown", async (ev) => {
   if (ev.key === "Tab") return;

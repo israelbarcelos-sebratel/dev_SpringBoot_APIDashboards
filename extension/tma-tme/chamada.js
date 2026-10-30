@@ -30,6 +30,16 @@
     });
   }
 
+  /** Modo de teste (popup): mostra que o evento chegou e por que não houve consulta. */
+  function diagnostico(texto, msg) {
+    const ui = window.SebratelMassivaUI;
+    const painel = ui.criar("Modo de teste: evento recebido");
+    painel.corpo.replaceChildren(
+      ui.linha("detalhe", texto),
+      ui.linha("nota", `Evento ${msg.evento}; agente ${digitos(msg.dados.agent) || "?"}.`));
+    painel.autoFechar(10000);
+  }
+
   async function aoEvento(msg) {
     const cfg = await config();
     if (cfg.avisoLigacao === false) return; // a pessoa desligou o aviso no popup
@@ -37,10 +47,21 @@
     // Se a pessoa informou o código do agente dela (4 dígitos), só as ligações dela; vazio = qualquer uma
     // que o painel mostre (a conta de atendente só recebe as próprias, mas a Native não garante).
     const agente = digitos(cfg.agente);
-    if (agente && digitos(dados.agent) !== agente) return;
+    if (agente && digitos(dados.agent) !== agente) {
+      if (cfg.diagnostico) diagnostico(`Ignorada: é do agente ${digitos(dados.agent) || "?"}, não do ${agente}.`, msg);
+      return;
+    }
 
     const telefone = telefoneExterno(dados);
-    if (!telefone) return;
+    if (!telefone) {
+      const quem = digitos(dados.callerNumber ?? dados.callerIdNum ?? dados.calleridnum ?? dados.connectedLineNum);
+      const saindo = String(dados.direction || "").toLowerCase() === "outgoing";
+      if (cfg.diagnostico) {
+        diagnostico(saindo ? "Ignorada: ligação feita por você (saída)."
+          : `Ignorada: ${quem ? `"${quem}" não é telefone de cliente (ramal interno?)` : "sem número de quem ligou"}.`, msg);
+      }
+      return;
+    }
     const agora = Date.now();
     if (agora - (vistos.get(telefone) || 0) < JANELA_MS) return;
     vistos.set(telefone, agora);
