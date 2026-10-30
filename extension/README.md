@@ -67,6 +67,10 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   publicada em staging e substituída pela `0.33.0` (a consulta por documento não vai adiante por enquanto).
 - `0.33.0`: quando os dígitos digitados na URA chegam colados ao número da ligação (0800 766 1000 + dígitos), o painel
   só mostra "Número digitado na URA" com esses dígitos, sem consultar o servidor.
+- `0.34.0`: botão de **minimizar** no widget (deixa só o cabeçalho; a escolha vale para todas as abas) e **aviso de versão
+  nova**: a extensão compara a versão instalada com a do `updates.xml` do servidor e, se houver uma mais nova, mostra
+  um aviso no widget e no popup com o botão **Atualizar**, que pede a atualização ao Chrome e recarrega a extensão sem
+  passar por `chrome://extensions`. Depois de atualizar, dê F5 na Native para o hook de eventos ser reinstalado.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

@@ -37,8 +37,64 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
 });
 
+// ---- Aviso de versão nova ----
+// O Chrome só atualiza a extensão sozinho de tempos em tempos; aqui comparamos a versão instalada com a que o
+// servidor publica (/download/updates.xml) para avisar a pessoa e deixá-la pedir a atualização na hora.
+const ATUALIZACAO_KEY = "sebratelAtualizacao";
+const VERIFICAR_A_CADA_MS = 30 * 60 * 1000;
+
+function versaoMaior(a, b) {
+  const x = String(a).split(".").map(Number);
+  const y = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
+async function verificarAtualizacao() {
+  const atual = chrome.runtime.getManifest().version;
+  const salvo = (await chrome.storage.local.get(ATUALIZACAO_KEY))[ATUALIZACAO_KEY] || {};
+  if (salvo.atual === atual && Date.now() - (salvo.verificadoEm || 0) < VERIFICAR_A_CADA_MS) return salvo;
+  try {
+    const r = await fetch(`${SebratelApi.NATIVE}/download/updates.xml`, { cache: "no-store" });
+    const xml = await r.text();
+    const m = xml.match(/<updatecheck[^>]*\sversion=['"]([\d.]+)['"]/);
+    const publicada = m ? m[1] : null;
+    const novo = {
+      atual,
+      publicada,
+      disponivel: Boolean(publicada && versaoMaior(publicada, atual)),
+      verificadoEm: Date.now(),
+    };
+    await chrome.storage.local.set({ [ATUALIZACAO_KEY]: novo });
+    return novo;
+  } catch {
+    // Sem rede ou servidor fora: não avisa nada e tenta de novo na próxima vez.
+    return { atual, publicada: null, disponivel: false, verificadoEm: 0 };
+  }
+}
+
+/** Pede ao Chrome a atualização agora; quando ela baixar, recarrega a extensão para a versão nova valer. */
+async function atualizarAgora() {
+  chrome.runtime.onUpdateAvailable.addListener(() => chrome.runtime.reload());
+  const r = await chrome.runtime.requestUpdateCheck();
+  return { status: r?.status || "unknown", versao: r?.version || null };
+}
+
 // O widget (content script) não tem acesso a chrome.identity; ele pede os dados aqui.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "atualizacao") {
+    verificarAtualizacao().then(sendResponse).catch(() => sendResponse({ disponivel: false }));
+    return true;
+  }
+  if (msg?.type === "atualizarAgora") {
+    atualizarAgora()
+      .then((r) => sendResponse({ ok: true, ...r }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
   if (msg?.type === "openDetalhes") {
     // Tabela completa numa aba da própria extensão (lá o api.js tem chrome.identity).
     chrome.tabs.create({ url: chrome.runtime.getURL("detalhes.html") });

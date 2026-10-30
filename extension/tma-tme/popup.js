@@ -275,3 +275,33 @@ $("logout-btn").addEventListener("click", async () => {
 });
 
 render();
+
+// --- Versão nova: avisa e atualiza sem passar por chrome://extensions ---
+async function checarAtualizacaoPopup() {
+  try {
+    const r = await chrome.runtime.sendMessage({ type: "atualizacao" });
+    if (!r?.disponivel) return;
+    $("update-txt").textContent = `Versão ${r.publicada} disponível (você usa a ${r.atual}).`;
+    $("update-card").style.display = "block";
+  } catch {
+    /* sem resposta: o aviso só não aparece */
+  }
+}
+
+$("update-btn").addEventListener("click", async () => {
+  const btn = $("update-btn");
+  btn.disabled = true;
+  $("update-txt").textContent = "Pedindo a atualização ao Chrome…";
+  try {
+    const r = await chrome.runtime.sendMessage({ type: "atualizarAgora" });
+    $("update-txt").textContent =
+      r?.status === "update_available" ? "Baixando… a extensão recarrega sozinha."
+      : r?.status === "throttled" ? "O Chrome pede para esperar alguns minutos. Tente de novo em instantes."
+      : "O Chrome ainda não liberou a nova versão; ele tenta sozinho e o aviso some ao atualizar.";
+  } catch {
+    $("update-txt").textContent = "Não foi possível pedir agora. O Chrome atualiza sozinho em algumas horas.";
+  }
+  setTimeout(() => (btn.disabled = false), 15000);
+});
+
+checarAtualizacaoPopup();
