@@ -97,6 +97,11 @@ const SebratelApi = {
     return this.request(this.MATRIX, "/ext/cliente/resumo", { method: "POST", body: pedido });
   },
 
+  /** POST /ext/cliente/ligacoes: ligações do cliente na Native (pelos telefones do cadastro dele). */
+  clienteLigacoes(pedido) {
+    return this.request(this.NATIVE, "/ext/cliente/ligacoes", { method: "POST", body: pedido });
+  },
+
   async getMetrics() {
     const cfg = await this.getConfig();
     const alvo = cfg.viewingAgent || "";

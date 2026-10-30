@@ -152,8 +152,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
-  if (msg?.type === "clienteResumo") {
-    SebratelApi.clienteResumo({ documento: msg.documento, telefone: msg.telefone })
+  if (msg?.type === "clienteResumo" || msg?.type === "clienteLigacoes") {
+    const pedido = { documento: msg.documento, telefone: msg.telefone };
+    (msg.type === "clienteResumo" ? SebratelApi.clienteResumo(pedido) : SebratelApi.clienteLigacoes(pedido))
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

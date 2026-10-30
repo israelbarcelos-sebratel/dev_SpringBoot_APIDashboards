@@ -28,6 +28,11 @@ app:
   # Resumo de recorrência do cliente na extensão (/ext/cliente/resumo): protocolos e CSAT dos últimos 12 meses.
   cliente-resumo:
     ativo: true
+  # Cadastro do cliente (people, telefones, massivas) vem do MassivasService pelo gateway; Basic só neste servidor.
+  massiva:
+    gateway-url: ${MASSIVA_GATEWAY_URL:}
+    user: ${MASSIVA_GATEWAY_USER:}
+    password: ${MASSIVA_GATEWAY_PASSWORD:}
   db-schema: ${DB_NAME:API_WebDeveloper}
   # Login SSO da extensão de Chrome (ver ExtController). O client id é público, não é segredo.
   google-client-id: ${GOOGLE_CLIENT_ID:243355917213-oa2b664bbmlskjkb9losafj6a8rsbtb2.apps.googleusercontent.com}

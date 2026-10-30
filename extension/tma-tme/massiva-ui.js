@@ -189,41 +189,120 @@
   }
 
   /**
-   * Histórico do cliente (protocolos dos últimos 12 meses, assuntos presumidos e CSAT), vindo do servidor num pedido à
-   * parte para não atrasar o aviso de massiva. Falha em silêncio: o aviso de massiva é o que importa.
+   * Histórico do cliente, em dois pedidos à parte para não atrasar o aviso de massiva: protocolos, assuntos, CSAT,
+   * cadastro e massivas (Matrix) e ligações (Native). Cada parte aparece quando chega; falha em silêncio, porque o
+   * aviso de massiva é o que importa.
    */
   async function anexarResumo(painel, pedido) {
     const id = (painel.resumoId = (painel.resumoId || 0) + 1);
-    try {
-      const resp = await chrome.runtime.sendMessage({ type: "clienteResumo", ...pedido });
-      if (!resp?.ok || painel.resumoId !== id || !painel.host.isConnected) return;
-      resumoCliente(painel, resp.data);
-    } catch {
-      /* sem histórico: nada a mostrar */
+    const buscar = async (tipo, mostrar) => {
+      try {
+        const resp = await chrome.runtime.sendMessage({ type: tipo, ...pedido });
+        if (!resp?.ok || painel.resumoId !== id || !painel.host.isConnected) return;
+        mostrar(painel, resp.data);
+      } catch {
+        /* sem esta parte do histórico: nada a mostrar */
+      }
+    };
+    await Promise.all([buscar("clienteResumo", resumoCliente), buscar("clienteLigacoes", ligacoesCliente)]);
+  }
+
+  /** Bloco "Histórico do cliente" do painel, criado na primeira parte que chegar. */
+  function blocoHistorico(painel) {
+    let bloco = painel.corpo.querySelector(".hist");
+    if (!bloco) {
+      bloco = document.createElement("div");
+      bloco.className = "hist";
+      const titulo = document.createElement("p");
+      titulo.className = "hist-titulo";
+      titulo.textContent = "Histórico do cliente";
+      bloco.append(titulo);
+      painel.corpo.append(bloco);
     }
+    return bloco;
+  }
+
+  /** Troca (ou cria) a parte `classe` do bloco; o resumo fica sempre antes das ligações. */
+  function parteHistorico(painel, classe, filhos) {
+    const bloco = blocoHistorico(painel);
+    bloco.querySelector(`.${classe}`)?.remove();
+    const parte = document.createElement("div");
+    parte.className = classe;
+    parte.append(...filhos);
+    const ligacoes = bloco.querySelector(".hist-lig");
+    if (classe === "hist-resumo" && ligacoes) bloco.insertBefore(parte, ligacoes);
+    else bloco.append(parte);
+  }
+
+  function plural(n, um, varios) {
+    return `${n} ${n === 1 ? um : varios}`;
   }
 
   function resumoCliente(painel, d) {
-    painel.corpo.querySelector(".hist")?.remove();
-    const bloco = document.createElement("div");
-    bloco.className = "hist";
-    const titulo = document.createElement("p");
-    titulo.className = "hist-titulo";
-    titulo.textContent = "Histórico do cliente (12 meses)";
+    const itens = [];
     const nivel = document.createElement("span");
     nivel.className = `hist-nivel n${d.nivel || 0}`;
-    nivel.textContent = `Recorrência: ${d.nivel_rotulo}`;
-    bloco.append(titulo, nivel);
-    for (const f of d.frases || []) bloco.append(linha("detalhe", f));
+    nivel.textContent = `Recorrência (12 meses): ${d.nivel_rotulo}`;
+    itens.push(nivel);
+    for (const f of d.frases || []) itens.push(linha("detalhe", f));
     for (const r of d.recomendacoes || []) {
       const p = linha("detalhe", r);
       p.classList.add("hist-rec");
-      bloco.append(p);
+      itens.push(p);
     }
-    if (d.ultimo_contato_dias != null) {
-      bloco.append(linha("nota", `Último protocolo: ${d.ultimo_contato_dias === 0 ? "hoje" : `há ${d.ultimo_contato_dias} dia(s)`}. Assuntos presumidos por etiquetas, não pelo texto da conversa.`));
+    if ((d.ultimos || []).length) {
+      itens.push(linha("nota", "Últimos protocolos (assunto presumido pelas etiquetas, não pelo texto da conversa):"));
+      for (const u of d.ultimos) {
+        const quando = u.ha_dias === 0 ? "hoje" : `há ${u.ha_dias} dia(s)`;
+        itens.push(linha("detalhe", `• ${quando}: ${(u.assuntos || []).join(", ")}${u.servico ? ` (${u.servico})` : ""}`));
+      }
     }
-    painel.corpo.append(bloco);
+    const m = d.massivas;
+    if (m) {
+      if (!m.ultimos_12_meses) {
+        itens.push(linha("detalhe", "Massivas: nenhuma nos últimos 12 meses."));
+      } else {
+        const ultima = m.ultima_em ? ` A última foi em ${dataCurta(m.ultima_em)}.` : "";
+        const comuns = (m.assuntos || []).map((a) => `${a.titulo} (${a.vezes}×)`).join(", ");
+        itens.push(
+          linha(
+            "detalhe",
+            `Massivas: esteve em ${plural(m.ultimos_12_meses, "massiva", "massivas")} nos últimos 12 meses (${m.ultimos_90_dias} em 90 dias, ${m.ultimos_30_dias} em 30).${ultima}${comuns ? ` Mais comuns: ${comuns}.` : ""}`
+          )
+        );
+      }
+    }
+    const c = d.cadastro;
+    if (c) {
+      itens.push(
+        linha(
+          "nota",
+          c.encontrado
+            ? `Cadastro: ${plural(c.registros_people, "registro", "registros")}, ${plural(c.contratos, "contrato", "contratos")}, ${plural(c.telefones_vinculados, "telefone vinculado", "telefones vinculados")}.`
+            : "Cliente não localizado no cadastro do ERP: o histórico vale só para o número/documento informado."
+        )
+      );
+    }
+    parteHistorico(painel, "hist-resumo", itens);
+  }
+
+  function ligacoesCliente(painel, d) {
+    if (d.sem_telefone) return;
+    const j30 = d.ultimos_30_dias || {};
+    const j90 = d.ultimos_90_dias || {};
+    const itens = [];
+    if (!j90.recebidas && !j90.efetuadas) {
+      itens.push(linha("detalhe", "Ligações: nenhuma nos últimos 90 dias."));
+    } else {
+      const sem = j30.sem_atendimento ? `, ${j30.sem_atendimento} sem atendimento` : "";
+      itens.push(
+        linha(
+          "detalhe",
+          `Ligações para a Sebratel: ${j30.recebidas || 0} nos últimos 30 dias${sem} (${j90.recebidas || 0} em 90 dias).${j30.efetuadas ? ` A equipe ligou ${plural(j30.efetuadas, "vez", "vezes")} nos últimos 30 dias.` : ""}`
+        )
+      );
+    }
+    parteHistorico(painel, "hist-lig", itens);
   }
 
   /** "olt_down" -> "olt down"; o AutoISP devolve o tipo em snake_case. */
