@@ -676,7 +676,7 @@
 
     // Avisa quando há versão nova publicada (confere ao abrir e a cada 30 min enquanto a aba está aberta).
     checarAtualizacao(el);
-    setInterval(() => checarAtualizacao(el), 30 * 60 * 1000);
+    setInterval(() => checarAtualizacao(el), 60 * 1000);
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local" || !changes[STORAGE_KEY]) return;

@@ -83,6 +83,8 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   (`massiva_history`), ligações da Native (recebidas, sem atendimento, retornos da equipe) e o CSAT.
 - `0.38.0`: a logo da barra do Chrome (e o nome "Sebratel" no widget) fica **dourada** enquanto há versão nova a instalar.
 - `0.38.1`: a logo fica em **ouro metálico** (sombra, tom de ouro e reflexo), não em amarelo chapado.
+- `0.38.2`: a versão publicada é conferida a cada 1 minuto (antes 30), então a logo dourada e o aviso aparecem para todos
+  quase na hora do deploy. Uma extensão não recebe webhook; por isso a verificação é frequente.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.
