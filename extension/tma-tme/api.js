@@ -92,6 +92,11 @@ const SebratelApi = {
     return this.request(this.NATIVE, "/ext/massiva/documento", { method: "POST", body: { documento } });
   },
 
+  /** POST /ext/cliente/resumo: recorrência de protocolos e CSAT do cliente (por documento e/ou telefone). */
+  clienteResumo(pedido) {
+    return this.request(this.MATRIX, "/ext/cliente/resumo", { method: "POST", body: pedido });
+  },
+
   async getMetrics() {
     const cfg = await this.getConfig();
     const alvo = cfg.viewingAgent || "";
