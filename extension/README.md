@@ -87,6 +87,8 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   quase na hora do deploy. Uma extensão não recebe webhook; por isso a verificação é frequente.
 - `0.39.0`: o histórico separa as origens: **Matrix** (protocolos, assuntos, CSAT Matrix) e **Native** (ligações e CSAT Native), cada
   um com seu rótulo e seus dados, sem misturar. O CSAT de cada sistema só conta as respostas dos atendimentos do cliente.
+- `0.40.0`: a conferência de versão nova roda por **alarme de 1 minuto** do próprio Chrome (permissão `alarms`, que não gera
+  aviso de permissão), sem depender de aba, widget ou clique. Antes o ícone dourado só aparecia quando algo acordava a extensão.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.
