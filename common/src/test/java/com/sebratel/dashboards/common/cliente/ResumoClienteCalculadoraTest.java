@@ -18,8 +18,10 @@ class ResumoClienteCalculadoraTest {
     private static final LocalDateTime AGORA = LocalDateTime.of(2026, 10, 30, 12, 0);
     private static final String LENTA = "ISA_SUPORTE_TÉCNICO,ISA_CLIENTE_CONEXÃO_LENTA,ISA_REBOOT_REALIZADO";
 
+    private static int contador = 0;
+
     private static Protocolo p(int diasAtras, String servico, String tags) {
-        return new Protocolo("P" + diasAtras + servico + tags + Math.random(), AGORA.minusDays(diasAtras), servico, tags, null);
+        return new Protocolo("P" + diasAtras + "-" + servico + "-" + tags + "-" + (contador++), AGORA.minusDays(diasAtras), servico, tags, null);
     }
 
     private static List<Protocolo> espalhados(int n, int dias, String tags) {
@@ -80,13 +82,34 @@ class ResumoClienteCalculadoraTest {
 
     @Test
     void csatBaixoEClienteRecorrenteViraAlerta() {
-        List<Nota> notas = List.of(new Nota(AGORA.minusDays(2), 1), new Nota(AGORA.minusDays(5), 2), new Nota(AGORA.minusDays(9), 5));
-        Map<String, Object> r = ResumoClienteCalculadora.calcular(espalhados(6, 14, LENTA), notas, AGORA);
+        List<Protocolo> protocolos = espalhados(6, 14, LENTA);
+        String a = protocolos.get(0).protocolo(), b = protocolos.get(1).protocolo(), c = protocolos.get(2).protocolo();
+        List<Nota> notas = List.of(new Nota(AGORA.minusDays(2), 1, a), new Nota(AGORA.minusDays(5), 2, b),
+                new Nota(AGORA.minusDays(9), 5, c));
+        Map<String, Object> r = ResumoClienteCalculadora.calcular(protocolos, notas, AGORA);
         @SuppressWarnings("unchecked")
         Map<String, Object> csat = (Map<String, Object>) r.get("csat");
         assertEquals(2.7, csat.get("media"));
         assertEquals(3, csat.get("respostas"));
+        assertEquals(3, csat.get("atendimentos"));
+        assertTrue(((String) r.get("resumo")).contains("3 respostas de 3 atendimentos"));
         assertTrue(((String) r.get("resumo")).contains("insatisfeito"));
+    }
+
+    @Test
+    void notaDeAtendimentoQueNaoFoiContadoNaoEntraNoCsat() {
+        // 22 respostas de um telefone de teste, mas só 1 protocolo do cliente: o CSAT considera só as desse protocolo.
+        Protocolo unico = new Protocolo("U1", AGORA.minusDays(22), "17295-SEBRATEL COMERCIAL VENDAS RECEPTIVAS", null, null);
+        List<Nota> notas = new ArrayList<>();
+        for (int i = 0; i < 22; i++) {
+            notas.add(new Nota(AGORA.minusDays(i), 5, "OUTRO" + i));
+        }
+        assertNull(ResumoClienteCalculadora.calcular(List.of(unico), notas, AGORA).get("csat"));
+        notas.add(new Nota(AGORA.minusDays(22), 4, "U1"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> csat = (Map<String, Object>) ResumoClienteCalculadora.calcular(List.of(unico), notas, AGORA).get("csat");
+        assertEquals(1, csat.get("respostas"));
+        assertEquals(4.0, csat.get("media"));
     }
 
     @Test
