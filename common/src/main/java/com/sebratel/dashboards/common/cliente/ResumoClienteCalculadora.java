@@ -211,7 +211,7 @@ public final class ResumoClienteCalculadora {
             int respostas = (int) csat.get("respostas");
             int atendimentos = (int) csat.get("atendimentos");
             String leitura = media < 3 ? "muito baixa" : media < 4 ? "abaixo do ideal" : "boa";
-            f.add("CSAT médio de " + String.format(Locale.forLanguageTag("pt-BR"), "%.1f", media) + " em "
+            f.add("CSAT Matrix médio de " + String.format(Locale.forLanguageTag("pt-BR"), "%.1f", media) + " em "
                     + plural(respostas, "resposta", "respostas") + " de " + plural(atendimentos, "atendimento", "atendimentos")
                     + " (" + leitura + ").");
         }

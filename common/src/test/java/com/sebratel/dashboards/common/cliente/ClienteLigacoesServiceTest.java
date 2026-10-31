@@ -35,6 +35,17 @@ class ClienteLigacoesServiceTest {
     }
 
     @Test
+    void csatDaNativeFicaSeparadoEPorAtendimento() {
+        assertEquals(null, ClienteLigacoesService.resumoCsat(List.of()));
+        Map<String, Object> c = ClienteLigacoesService.resumoCsat(List.of(
+                new String[] {"4", "A"}, new String[] {"5", "A"}, new String[] {"2", "B"}));
+        assertEquals(3.7, c.get("media"));
+        assertEquals(3, c.get("respostas"));
+        assertEquals(2, c.get("atendimentos"));
+        assertEquals(4, c.get("ultima_nota"));
+    }
+
+    @Test
     void numeroDaNativeEmQualquerFormatoCasaPelosOitoUltimosDigitos() {
         Set<String> finais = ClienteLigacoesService.finais(new LinkedHashSet<>(List.of("51996772147", "5135233096")));
         for (String nativo : List.of("51996772147", "051996772147", "5551996772147", "0996772147")) {
