@@ -52,8 +52,9 @@ chrome.runtime.onInstalled.addListener(async () => {
 // O Chrome só atualiza a extensão sozinho de tempos em tempos; aqui comparamos a versão instalada com a que o
 // servidor publica (/download/updates.xml) para avisar a pessoa e deixá-la pedir a atualização na hora.
 const ATUALIZACAO_KEY = "sebratelAtualizacao";
-// 1 minuto: o updates.xml tem poucas centenas de bytes, e assim a logo dourada aparece para todos logo depois do deploy.
-const VERIFICAR_A_CADA_MS = 60 * 1000;
+// O updates.xml tem poucas centenas de bytes. O cache fica abaixo do período do alarme (1 min) para que cada
+// alarme sempre consulte o servidor de verdade.
+const VERIFICAR_A_CADA_MS = 30 * 1000;
 
 function versaoMaior(a, b) {
   const x = String(a).split(".").map(Number);
@@ -178,6 +179,15 @@ async function verificarEPintar() {
   return r;
 }
 verificarEPintar().catch(() => {});
+
+// Alarme de 1 minuto: acorda o service worker sozinho, sem depender de aba, widget ou clique, e a logo dourada aparece
+// para todos logo depois do deploy. ("alarms" não mostra aviso de permissão, então não desativa a extensão no
+// Chrome de quem já a tem instalada.) Criar de novo com o mesmo nome só substitui o alarme.
+const ALARME_VERSAO = "sebratel-versao";
+chrome.alarms.create(ALARME_VERSAO, { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarme) => {
+  if (alarme.name === ALARME_VERSAO) verificarEPintar().catch(() => {});
+});
 
 /** Pede ao Chrome a atualização agora; quando ela baixar, recarrega a extensão para a versão nova valer. */
 async function atualizarAgora() {
