@@ -100,9 +100,10 @@ public class ClienteResumoService {
         List<Object> args = new ArrayList<>();
         String quem = filtro(docs, fones, "num_cpf", "num_telefone", args);
         args.add(desde);
-        return jdbc.query("SELECT dat_resposta, nom_valor FROM db_matrix_avaliations WHERE (" + quem
+        return jdbc.query("SELECT dat_resposta, nom_valor, num_protocolo FROM db_matrix_avaliations WHERE (" + quem
                 + ") AND dat_resposta >= ? AND nom_valor REGEXP '^[1-5]$' ORDER BY dat_resposta DESC LIMIT " + LIMITE,
-                (rs, i) -> new Nota(local(rs.getTimestamp("dat_resposta")), Integer.parseInt(rs.getString("nom_valor"))),
+                (rs, i) -> new Nota(local(rs.getTimestamp("dat_resposta")), Integer.parseInt(rs.getString("nom_valor")),
+                        rs.getString("num_protocolo")),
                 args.toArray());
     }
 

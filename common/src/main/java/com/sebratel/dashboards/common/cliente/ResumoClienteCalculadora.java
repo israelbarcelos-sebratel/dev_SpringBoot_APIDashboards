@@ -35,7 +35,8 @@ public final class ResumoClienteCalculadora {
 
     public record Protocolo(String protocolo, LocalDateTime data, String servico, String tags, String classificacao) {}
 
-    public record Nota(LocalDateTime data, int valor) {}
+    /** Resposta da pesquisa; {@code protocolo} liga a nota ao atendimento que ela avaliou. */
+    public record Nota(LocalDateTime data, int valor, String protocolo) {}
 
     private ResumoClienteCalculadora() {}
 
@@ -72,7 +73,7 @@ public final class ResumoClienteCalculadora {
         r.put("temas", listaTemas);
         r.put("ultimos", ultimos(itens));
 
-        Map<String, Object> csat = csat(notas, agora);
+        Map<String, Object> csat = csat(notas, itens, agora);
         r.put("csat", csat);
 
         List<String> frases = frases(itens, janelaPrincipal, temas, csat);
@@ -87,7 +88,7 @@ public final class ResumoClienteCalculadora {
 
     // ---- itens ----
 
-    private record Item(int dias, List<TemaAtendimento> temas, String servico) {}
+    private record Item(int dias, List<TemaAtendimento> temas, String servico, String protocolo) {}
 
     private static List<Item> itens(List<Protocolo> brutos, LocalDateTime agora) {
         Set<String> vistos = new LinkedHashSet<>();
@@ -101,7 +102,8 @@ public final class ResumoClienteCalculadora {
                 continue;
             }
             int dias = (int) Math.max(0, Duration.between(p.data(), agora).toDays());
-            itens.add(new Item(dias, TemaAtendimento.detectar(p.servico(), p.tags(), p.classificacao()), p.servico()));
+            itens.add(new Item(dias, TemaAtendimento.detectar(p.servico(), p.tags(), p.classificacao()), p.servico(),
+                    p.protocolo()));
         }
         itens.sort(Comparator.comparingInt(Item::dias));
         return itens;
@@ -149,8 +151,20 @@ public final class ResumoClienteCalculadora {
 
     // ---- CSAT ----
 
-    private static Map<String, Object> csat(List<Nota> notas, LocalDateTime agora) {
-        List<Nota> validas = notas.stream().filter(n -> n.valor() >= 1 && n.valor() <= 5 && n.data() != null)
+    /**
+     * Só entram as notas dos atendimentos que a própria contagem considerou do cliente (os mesmos protocolos da
+     * recorrência). Sem isso, um telefone usado em muitas pesquisas (teste, número compartilhado) mostrava dezenas de
+     * respostas para um único protocolo.
+     */
+    private static Map<String, Object> csat(List<Nota> notas, List<Item> itens, LocalDateTime agora) {
+        Set<String> contados = new LinkedHashSet<>();
+        itens.forEach(i -> {
+            if (i.protocolo != null) {
+                contados.add(i.protocolo);
+            }
+        });
+        List<Nota> validas = notas.stream()
+                .filter(n -> n.valor() >= 1 && n.valor() <= 5 && n.data() != null && contados.contains(n.protocolo()))
                 .sorted(Comparator.comparing(Nota::data).reversed()).toList();
         if (validas.isEmpty()) {
             return null;
@@ -158,6 +172,7 @@ public final class ResumoClienteCalculadora {
         Map<String, Object> c = new LinkedHashMap<>();
         c.put("media", Math.round(validas.stream().mapToInt(Nota::valor).average().orElse(0) * 10) / 10.0);
         c.put("respostas", validas.size());
+        c.put("atendimentos", (int) validas.stream().map(Nota::protocolo).distinct().count());
         c.put("ultima_nota", validas.get(0).valor());
         c.put("ultima_ha_dias", (int) Math.max(0, Duration.between(validas.get(0).data(), agora).toDays()));
         return c;
@@ -194,9 +209,11 @@ public final class ResumoClienteCalculadora {
         if (csat != null) {
             double media = (double) csat.get("media");
             int respostas = (int) csat.get("respostas");
+            int atendimentos = (int) csat.get("atendimentos");
             String leitura = media < 3 ? "muito baixa" : media < 4 ? "abaixo do ideal" : "boa";
             f.add("CSAT médio de " + String.format(Locale.forLanguageTag("pt-BR"), "%.1f", media) + " em "
-                    + plural(respostas, "resposta", "respostas") + " (" + leitura + ").");
+                    + plural(respostas, "resposta", "respostas") + " de " + plural(atendimentos, "atendimento", "atendimentos")
+                    + " (" + leitura + ").");
         }
         return f.stream().filter(s -> !s.isBlank()).toList();
     }
