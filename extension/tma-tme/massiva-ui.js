@@ -251,7 +251,7 @@
       itens.push(p);
     }
     if ((d.ultimos || []).length) {
-      itens.push(linha("nota", "Últimos protocolos (assunto presumido pelas etiquetas, não pelo texto da conversa):"));
+      itens.push(linha("nota", "Últimos protocolos da Matrix (assunto presumido pelas etiquetas, não pelo texto da conversa):"));
       for (const u of d.ultimos) {
         const quando = u.ha_dias === 0 ? "hoje" : `há ${u.ha_dias} dia(s)`;
         itens.push(linha("detalhe", `• ${quando}: ${(u.assuntos || []).join(", ")}${u.servico ? ` (${u.servico})` : ""}`));
@@ -287,18 +287,29 @@
   }
 
   function ligacoesCliente(painel, d) {
-    if (d.sem_telefone) return;
+    const csat = d.csat;
     const j30 = d.ultimos_30_dias || {};
     const j90 = d.ultimos_90_dias || {};
     const itens = [];
-    if (!j90.recebidas && !j90.efetuadas) {
-      itens.push(linha("detalhe", "Ligações: nenhuma nos últimos 90 dias."));
+    if (d.sem_telefone) {
+      itens.push(linha("detalhe", "Ligações (Native): sem telefone do cliente para consultar."));
+    } else if (!j90.recebidas && !j90.efetuadas) {
+      itens.push(linha("detalhe", "Ligações (Native): nenhuma nos últimos 90 dias."));
     } else {
       const sem = j30.sem_atendimento ? `, ${j30.sem_atendimento} sem atendimento` : "";
       itens.push(
         linha(
           "detalhe",
-          `Ligações para a Sebratel: ${j30.recebidas || 0} nos últimos 30 dias${sem} (${j90.recebidas || 0} em 90 dias).${j30.efetuadas ? ` A equipe ligou ${plural(j30.efetuadas, "vez", "vezes")} nos últimos 30 dias.` : ""}`
+          `Ligações (Native) para a Sebratel: ${j30.recebidas || 0} nos últimos 30 dias${sem} (${j90.recebidas || 0} em 90 dias).${j30.efetuadas ? ` A equipe ligou ${plural(j30.efetuadas, "vez", "vezes")} nos últimos 30 dias.` : ""}`
+        )
+      );
+    }
+    if (csat) {
+      const leitura = csat.media < 3 ? "muito baixa" : csat.media < 4 ? "abaixo do ideal" : "boa";
+      itens.push(
+        linha(
+          "detalhe",
+          `CSAT Native médio de ${String(csat.media).replace(".", ",")} em ${plural(csat.respostas, "resposta", "respostas")} de ${plural(csat.atendimentos, "atendimento", "atendimentos")} (${leitura}).`
         )
       );
     }
