@@ -189,11 +189,30 @@ chrome.alarms.onAlarm.addListener((alarme) => {
   if (alarme.name === ALARME_VERSAO) verificarEPintar().catch(() => {});
 });
 
-/** Pede ao Chrome a atualização agora; quando ela baixar, recarrega a extensão para a versão nova valer. */
+const ATUALIZACAO_LOG_KEY = "sebratelAtualizacaoLog";
+
+/** Guarda o que aconteceu na última tentativa de atualizar (para diagnóstico: chrome.storage.local, chave acima). */
+async function registrarAtualizacao(evento, extra) {
+  try {
+    await chrome.storage.local.set({ [ATUALIZACAO_LOG_KEY]: { quando: new Date().toISOString(), evento, ...extra } });
+  } catch {
+    /* sem registro: não atrapalha a atualização */
+  }
+}
+
+// Este ouvinte precisa estar registrado no topo do arquivo: o Chrome dispara onUpdateAvailable quando a nova versão
+// termina de baixar, o que costuma acontecer depois do service worker ter dormido. Registrado só dentro do clique, ele
+// não existe quando o service worker acorda para o evento, e a extensão ficava na versão antiga.
+chrome.runtime.onUpdateAvailable.addListener((detalhes) => {
+  registrarAtualizacao("update_available", { versao: detalhes?.version || null }).finally(() => chrome.runtime.reload());
+});
+
+/** Pede ao Chrome a atualização agora; ao baixar, o ouvinte acima recarrega a extensão para a versão nova valer. */
 async function atualizarAgora() {
-  chrome.runtime.onUpdateAvailable.addListener(() => chrome.runtime.reload());
   const r = await chrome.runtime.requestUpdateCheck();
-  return { status: r?.status || "unknown", versao: r?.version || null };
+  const resultado = { status: r?.status || "unknown", versao: r?.version || null };
+  await registrarAtualizacao("pedido", resultado);
+  return resultado;
 }
 
 // O widget (content script) não tem acesso a chrome.identity; ele pede os dados aqui.

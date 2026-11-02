@@ -88,7 +88,7 @@
       const r = await chrome.runtime.sendMessage({ type: "atualizarAgora" });
       if (r?.status === "update_available") txt.textContent = "Baixando… a extensão recarrega sozinha. Se a página pedir, aperte F5.";
       else if (r?.status === "throttled") txt.textContent = "O Chrome pede para esperar alguns minutos. Tente de novo em instantes.";
-      else txt.textContent = "O Chrome ainda não liberou a nova versão; ele tenta sozinho e o aviso some ao atualizar.";
+      else txt.textContent = `O Chrome ainda não liberou a nova versão (resposta: ${r?.status || "sem resposta"}). Ele tenta sozinho e o aviso some ao atualizar.`;
     } catch {
       txt.textContent = "Não foi possível pedir agora. O Chrome atualiza sozinho em algumas horas.";
     }

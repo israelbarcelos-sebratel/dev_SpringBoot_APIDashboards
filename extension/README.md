@@ -89,6 +89,9 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   um com seu rótulo e seus dados, sem misturar. O CSAT de cada sistema só conta as respostas dos atendimentos do cliente.
 - `0.40.0`: a conferência de versão nova roda por **alarme de 1 minuto** do próprio Chrome (permissão `alarms`, que não gera
   aviso de permissão), sem depender de aba, widget ou clique. Antes o ícone dourado só aparecia quando algo acordava a extensão.
+- `0.40.1`: corrige o botão **Atualizar**: o ouvinte de `onUpdateAvailable` passa a ser registrado no topo do service worker (dentro do
+  clique ele se perdia quando o service worker dormia e a extensão não recarregava). A tentativa fica registrada em
+  `chrome.storage.local` (`sebratelAtualizacaoLog`) e o widget mostra a resposta do Chrome.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.
