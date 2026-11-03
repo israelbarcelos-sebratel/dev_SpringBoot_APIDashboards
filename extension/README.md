@@ -99,6 +99,7 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   massivas-svc com `contratos_situacao`/`protocolos_erp`; sem ela os blocos simplesmente não aparecem.
 - `0.41.1`: o painel de ligação/busca com muito conteúdo não estoura mais a tela: rola por dentro (cabeçalho com o × sempre à vista, altura máxima da janela) e também fecha com **Esc**. Fechar clicando fora continua exigindo 3 cliques em menos de 1 segundo (0.31.0).
 - `0.41.2`: um **clique fora** do painel de ligação/busca já o fecha (antes eram 3 cliques em 1 segundo, regra da 0.31.0). Continua fechando pelo × e por Esc.
+- `0.42.0`: **última consulta no atalho**: o painel de ligação (e a busca por CPF/CNPJ) guarda o último resultado e o atalho (Alt+Shift+M, botão da lupa ou do popup) o reabre embaixo da caixa de busca, com a hora dele. O **×** descarta a última consulta (depois dele o atalho abre só a busca); clique fora e Esc apenas escondem o painel. A consulta guardada vale por 8 horas, fica só no `chrome.storage.local` do navegador e traz apenas dados já mascarados pelo servidor.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

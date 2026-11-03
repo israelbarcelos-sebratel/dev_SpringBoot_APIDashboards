@@ -108,6 +108,7 @@
       const resp = await chrome.runtime.sendMessage(pedido);
       if (!resp?.ok) throw new Error(resp?.error || "Sem resposta da extensão.");
       ui.resultado(painel, resp.data);
+      ui.lembrar(painel, "ligação", resp.data); // Alt+Shift+M reabre estas informações até o × ser clicado
       ui.anexarResumo(painel, pedido.telefone ? { telefone: pedido.telefone } : { documento: pedido.documento });
       // Massiva ou alteração de rede ficam na tela até a pessoa fechar; o resto some sozinho.
       const d = resp.data;

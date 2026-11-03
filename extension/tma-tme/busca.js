@@ -40,8 +40,9 @@
     if (area === "local" && mudancas[CONFIG_KEY]) carregarConfig();
   });
 
-  function abrir() {
+  async function abrir() {
     const ui = window.SebratelMassivaUI;
+    const ultima = await ui.lerUltima(); // última consulta (ligação ou busca) que ninguém descartou com o ×
     painel?.fechar();
     painel = ui.criar(ui.NOMES.documento);
 
@@ -61,6 +62,7 @@
     painel.corpo.append(form, saida);
     // Mesmo objeto em todas as buscas: o contador interno descarta o histórico de uma busca já substituída.
     const alvo = { corpo: saida, caixa: painel.caixa, host: painel.host };
+    if (ultima) ui.mostrarUltima(alvo, ultima);
 
     // Esc fecha; as teclas digitadas não podem vazar para os atalhos da página.
     campo.addEventListener("keydown", (ev) => {
@@ -72,14 +74,15 @@
       const documento = campo.value.trim();
       if (!documento) return;
       botao.disabled = true;
-      ui.carregando({ corpo: saida, caixa: painel.caixa }, "Consultando massiva…");
+      ui.carregando(alvo, "Consultando massiva…");
       try {
         const resp = await chrome.runtime.sendMessage({ type: "massivaDocumento", documento });
         if (!resp?.ok) throw new Error(resp?.error || "Sem resposta da extensão.");
-        ui.resultado({ corpo: saida, caixa: painel.caixa }, resp.data);
+        ui.resultado(alvo, resp.data);
+        ui.lembrar(alvo, "busca por CPF/CNPJ", resp.data);
         ui.anexarResumo(alvo, { documento });
       } catch (e) {
-        ui.erro({ corpo: saida, caixa: painel.caixa }, e.message || "Tente de novo em instantes.");
+        ui.erro(alvo, e.message || "Tente de novo em instantes.");
       } finally {
         botao.disabled = false;
         campo.select();

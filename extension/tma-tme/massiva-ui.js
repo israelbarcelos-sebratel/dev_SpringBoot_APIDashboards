@@ -88,7 +88,11 @@
       // fica para quem já chamava autoFechar(ms) e é ignorado.
       autoFechar() {},
     };
-    fechar.addEventListener("click", () => painel.fechar());
+    // O × descarta a "última consulta" guardada (o atalho não a mostra mais); clique fora e Esc só escondem o painel.
+    fechar.addEventListener("click", () => {
+      limparUltima();
+      painel.fechar();
+    });
 
     // Um clique fora do painel fecha; clique dentro dele (inclusive no Shadow DOM) não.
     function foraDoPainel(ev) {
@@ -151,6 +155,61 @@
     return aproximada ? `${dia}, por volta das ${data.getHours()}h` : `${dia} às ${hora}`;
   }
 
+  const ULTIMA_KEY = "sebratelUltimaConsulta";
+  const ULTIMA_VALIDADE_MS = 8 * 3600 * 1000; // uma consulta de ontem não é "a última" de agora
+
+  function salvarUltima(ultima) {
+    try {
+      chrome.storage.local.set({ [ULTIMA_KEY]: ultima });
+    } catch {
+      /* sem armazenamento: o atalho só abre a busca */
+    }
+  }
+
+  function limparUltima() {
+    try {
+      chrome.storage.local.remove(ULTIMA_KEY);
+    } catch {
+      /* idem */
+    }
+  }
+
+  /** Guarda o resultado exibido em `painel` para o atalho reabri-lo; as partes do histórico entram quando chegam. */
+  function lembrar(painel, rotulo, r) {
+    painel.lembrado = { em: Date.now(), rotulo, r, resumo: null, ligacoes: null };
+    salvarUltima(painel.lembrado);
+  }
+
+  /** A última consulta ainda válida (ou null); nunca rejeita. */
+  function lerUltima() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get([ULTIMA_KEY], (res) => {
+          const u = res && res[ULTIMA_KEY];
+          resolve(u && u.r && Date.now() - u.em < ULTIMA_VALIDADE_MS ? u : null);
+        });
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  function haQuanto(em) {
+    const min = Math.floor((Date.now() - em) / 60000);
+    if (min < 1) return "agora há pouco";
+    if (min < 60) return `há ${min} min`;
+    return `há ${Math.floor(min / 60)} h`;
+  }
+
+  /** Mostra a última consulta guardada (resultado e histórico) em `alvo`, com a hora dela no topo. */
+  function mostrarUltima(alvo, u) {
+    resultado(alvo, u.r);
+    if (u.resumo) resumoCliente(alvo, u.resumo);
+    if (u.ligacoes) ligacoesCliente(alvo, u.ligacoes);
+    alvo.corpo.prepend(linha("nota", `Última consulta (${u.rotulo || "ligação"}) ${haQuanto(u.em)}.`));
+    alvo.lembrado = u;
+  }
+
   /** Mostra o resultado de uma consulta (a resposta do servidor) no painel. */
   function resultado(painel, r, { aoFim } = {}) {
     painel.corpo.replaceChildren();
@@ -211,6 +270,10 @@
         const resp = await chrome.runtime.sendMessage({ type: tipo, ...pedido });
         if (!resp?.ok || painel.resumoId !== id || !painel.host.isConnected) return;
         mostrar(painel, resp.data);
+        if (painel.lembrado && painel.resumoId === id) {
+          painel.lembrado[tipo === "clienteResumo" ? "resumo" : "ligacoes"] = resp.data;
+          salvarUltima(painel.lembrado);
+        }
       } catch {
         /* sem esta parte do histórico: nada a mostrar */
       }
@@ -468,5 +531,5 @@
     painel.caixa.className = "caixa aviso";
   }
 
-  window.SebratelMassivaUI = { vivo: () => { try { return !!chrome.runtime?.id; } catch { return false; } }, criar, resultado, anexarResumo, carregando, erro, linha, motivoResumido, ultimasHoras, quandoPrevisto, NOMES };
+  window.SebratelMassivaUI = { vivo: () => { try { return !!chrome.runtime?.id; } catch { return false; } }, criar, resultado, anexarResumo, carregando, erro, linha, motivoResumido, ultimasHoras, quandoPrevisto, lembrar, lerUltima, mostrarUltima, limparUltima, NOMES };
 })();
