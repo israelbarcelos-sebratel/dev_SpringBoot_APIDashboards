@@ -98,6 +98,7 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   contratos cancelados (sem conexão) passa a aparecer como "Cliente sem conexão ativa" em vez de "não localizado". Exige a
   massivas-svc com `contratos_situacao`/`protocolos_erp`; sem ela os blocos simplesmente não aparecem.
 - `0.41.1`: o painel de ligação/busca com muito conteúdo não estoura mais a tela: rola por dentro (cabeçalho com o × sempre à vista, altura máxima da janela) e também fecha com **Esc**. Fechar clicando fora continua exigindo 3 cliques em menos de 1 segundo (0.31.0).
+- `0.41.2`: um **clique fora** do painel de ligação/busca já o fecha (antes eram 3 cliques em 1 segundo, regra da 0.31.0). Continua fechando pelo × e por Esc.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

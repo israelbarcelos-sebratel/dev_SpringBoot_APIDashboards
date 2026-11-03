@@ -80,28 +80,21 @@
       host, caixa, corpo, titulo, raiz, timer: null,
       fechar() {
         clearTimeout(painel.timer);
-        document.removeEventListener("click", foraTresVezes, true);
+        document.removeEventListener("click", foraDoPainel, true);
         document.removeEventListener("keydown", aoTeclar, true);
         host.remove();
       },
-      // O painel não fecha sozinho: só pelo botão × ou com 3 cliques fora dele em menos de 1 segundo. O parâmetro
+      // O painel não fecha sozinho: só pelo botão ×, por Esc ou com um clique fora dele. O parâmetro
       // fica para quem já chamava autoFechar(ms) e é ignorado.
       autoFechar() {},
     };
     fechar.addEventListener("click", () => painel.fechar());
 
-    const cliquesFora = [];
-    function foraTresVezes(ev) {
-      if (ev.composedPath().includes(host)) {
-        cliquesFora.length = 0;
-        return;
-      }
-      const agora = Date.now();
-      cliquesFora.push(agora);
-      while (cliquesFora.length && agora - cliquesFora[0] > 1000) cliquesFora.shift();
-      if (cliquesFora.length >= 3) painel.fechar();
+    // Um clique fora do painel fecha; clique dentro dele (inclusive no Shadow DOM) não.
+    function foraDoPainel(ev) {
+      if (!ev.composedPath().includes(host)) painel.fechar();
     }
-    document.addEventListener("click", foraTresVezes, true);
+    document.addEventListener("click", foraDoPainel, true);
     function aoTeclar(ev) {
       if (ev.key === "Escape") painel.fechar();
     }
