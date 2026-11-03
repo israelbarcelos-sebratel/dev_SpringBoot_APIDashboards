@@ -28,6 +28,9 @@
     .livre .status { color: #0f7a37; }
     .detalhe { margin: 0; color: #2a2a28; overflow-wrap: anywhere; }
     .nota { margin: 6px 0 0; font-size: 12px; color: #5e5b50; }
+    .alerta { margin: 6px 0 0; font-weight: 700; color: #b91c1c; overflow-wrap: anywhere; }
+    .tec { margin: 0; font-weight: 600; color: #92400e; overflow-wrap: anywhere; }
+    .erp { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid #e0dacb; }
     .hist { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid #e0dacb; }
     .hist-titulo { margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #5e5b50; }
     .hist-nivel { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #e7f5ec; color: #0f7a37; }
@@ -174,6 +177,10 @@
       painel.caixa.classList.add("livre");
       painel.corpo.append(linha("status", "Sem massiva"));
       painel.corpo.append(linha("detalhe", `Contratos consultados: ${r.contratos_consultados ?? 0}.`));
+    } else if (r.status === "cliente_sem_conexao") {
+      painel.caixa.classList.add("aviso");
+      painel.corpo.append(linha("status", "Cliente sem conexão ativa"));
+      painel.corpo.append(linha("detalhe", "Nenhum contrato dele tem conexão (ex.: contratos cancelados). Veja abaixo o que o ERP diz."));
     } else if (r.status === "telefone_compartilhado") {
       painel.caixa.classList.add("aviso");
       painel.corpo.append(linha("status", "Telefone em vários cadastros"));
@@ -182,6 +189,8 @@
       painel.corpo.append(linha("status", "Cliente não localizado"));
       painel.corpo.append(linha("detalhe", "Nenhum contrato com autenticação neste cadastro."));
     }
+    contratosErp(painel, r);
+    protocolosErp(painel, r);
     autoisp(painel, r);
     ultimasHoras(painel, r);
     if (quem) painel.corpo.append(linha("nota", quem));
@@ -314,6 +323,77 @@
       );
     }
     parteHistorico(painel, "hist-lig", itens);
+  }
+
+  const SITUACOES = {
+    bloqueio_financeiro: "BLOQUEADO (financeiro)",
+    bloqueio_administrativo: "BLOQUEADO (administrativo)",
+    suspenso: "SUSPENSO",
+    cancelado: "CANCELADO",
+  };
+
+  function dataBr(iso) {
+    const d = iso ? new Date(`${String(iso).slice(0, 10)}T12:00:00`) : null;
+    return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("pt-BR") : "";
+  }
+
+  function haDias(n) {
+    return n === 0 ? "hoje" : `há ${plural(n, "dia", "dias")}`;
+  }
+
+  /** Contratos bloqueados, suspensos ou cancelados (recentes). Contrato normal não gera nada na tela. */
+  function contratosErp(painel, r) {
+    const c = r.contratos_situacao;
+    if (!c) return;
+    if (c.disponivel === false) {
+      painel.corpo.append(linha("nota", "Situação do contrato indisponível no momento."));
+      return;
+    }
+    const problemas = c.problemas || [];
+    if (!problemas.length) return;
+    // "Sem massiva" em verde engana quem está sem internet por bloqueio: troca a cor para a de aviso.
+    if (problemas.some((p) => p.situacao !== "cancelado") && painel.caixa.classList.contains("livre")) {
+      painel.caixa.classList.replace("livre", "aviso");
+    }
+    const bloco = document.createElement("div");
+    bloco.className = "erp";
+    for (const p of problemas) {
+      const rotulo = SITUACOES[p.situacao] || p.situacao;
+      const quando = p.situacao === "cancelado"
+        ? `em ${dataBr(p.desde)}`
+        : p.dias != null ? `há ${plural(p.dias, "dia", "dias")}` : "";
+      const motivo = p.motivo ? ` Motivo: ${p.motivo}.` : "";
+      bloco.append(linha("alerta", `Contrato ${rotulo}${quando ? ` ${quando}` : ""}.${motivo}`));
+    }
+    if (c.outros) bloco.append(linha("nota", `+${plural(c.outros, "contrato", "contratos")} com problema.`));
+    painel.corpo.append(bloco);
+  }
+
+  /** Protocolos, OS e visitas abertos no ERP: o atendente evita abrir um chamado repetido. */
+  function protocolosErp(painel, r) {
+    const p = r.protocolos_erp;
+    if (!p) return;
+    if (p.disponivel === false) {
+      painel.corpo.append(linha("nota", "Protocolos do ERP indisponíveis no momento."));
+      return;
+    }
+    const itens = p.itens || [];
+    if (!itens.length) {
+      painel.corpo.append(linha("nota", "Sem protocolo aberto no ERP."));
+      return;
+    }
+    const bloco = document.createElement("div");
+    bloco.className = "erp";
+    bloco.append(linha("hist-titulo", `Protocolos abertos no ERP (${p.total})`));
+    for (const i of itens) {
+      const visita = i.visita_em ? `, visita ${dataCurta(i.visita_em)}` : "";
+      const antigo = i.antigo ? " (antigo)" : "";
+      bloco.append(linha(i.tecnico ? "tec" : "detalhe",
+        `• ${i.protocolo}: ${i.tipo} (${i.situacao}), ${haDias(i.ha_dias)}${visita}${antigo}`));
+    }
+    const mais = (p.total || 0) - itens.length;
+    if (mais > 0) bloco.append(linha("nota", `+${plural(mais, "protocolo", "protocolos")} no ERP.`));
+    painel.corpo.append(bloco);
   }
 
   /** "olt_down" -> "olt down"; o AutoISP devolve o tipo em snake_case. */

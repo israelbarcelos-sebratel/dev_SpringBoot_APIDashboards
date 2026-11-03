@@ -92,6 +92,11 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
 - `0.40.1`: corrige o botão **Atualizar**: o ouvinte de `onUpdateAvailable` passa a ser registrado no topo do service worker (dentro do
   clique ele se perdia quando o service worker dormia e a extensão não recarregava). A tentativa fica registrada em
   `chrome.storage.local` (`sebratelAtualizacaoLog`) e o widget mostra a resposta do Chrome.
+- `0.41.0`: o painel de ligação e a busca por CPF/CNPJ mostram a **situação do contrato** (bloqueado financeiro ou administrativo,
+  suspenso ou cancelado, com os dias e o motivo do cancelamento; contrato normal não aparece) e os **protocolos, OS e visitas
+  abertos no ERP** (tipos técnicos em destaque, "antigo" acima de 180 dias, visita quando o ERP a registrou). Cliente só com
+  contratos cancelados (sem conexão) passa a aparecer como "Cliente sem conexão ativa" em vez de "não localizado". Exige a
+  massivas-svc com `contratos_situacao`/`protocolos_erp`; sem ela os blocos simplesmente não aparecem.
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.
