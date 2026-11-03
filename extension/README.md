@@ -97,6 +97,7 @@ sem receber a mudança, e uma versão menor nunca é instalada por cima de uma m
   abertos no ERP** (tipos técnicos em destaque, "antigo" acima de 180 dias, visita quando o ERP a registrou). Cliente só com
   contratos cancelados (sem conexão) passa a aparecer como "Cliente sem conexão ativa" em vez de "não localizado". Exige a
   massivas-svc com `contratos_situacao`/`protocolos_erp`; sem ela os blocos simplesmente não aparecem.
+- `0.41.1`: o painel de ligação/busca com muito conteúdo não estoura mais a tela: rola por dentro (cabeçalho com o × sempre à vista, altura máxima da janela) e também fecha com **Esc**. Fechar clicando fora continua exigindo 3 cliques em menos de 1 segundo (0.31.0).
 
 Antes de empacotar, confira a maior versão de `git log --all -p -- extension/tma-tme/manifest.json` e de qualquer build
 local, e suba **acima** dela.

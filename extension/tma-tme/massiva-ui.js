@@ -15,7 +15,10 @@
       color: #2a2a28; background: #fff; border: 1px solid #e0dacb; border-left: 6px solid #b7b2a4;
       border-radius: 10px; box-shadow: 0 8px 16px -4px rgba(40,33,20,.12), 0 12px 28px -6px rgba(40,33,20,.18);
       padding: 12px 14px;
+      /* Painel longo (histórico, protocolos): rola por dentro e o cabeçalho com o × fica sempre à vista. */
+      display: flex; flex-direction: column; box-sizing: border-box; max-height: calc(100vh - 32px);
     }
+    .corpo { overflow-y: auto; min-height: 0; overscroll-behavior: contain; padding-right: 4px; }
     .caixa.massiva { border-left-color: #dc2626; background: #fff7f7; }
     .caixa.livre { border-left-color: #0f7a37; }
     .caixa.aviso { border-left-color: #b45309; }
@@ -69,6 +72,7 @@
     fechar.textContent = "×";
     topo.append(titulo, fechar);
     const corpo = document.createElement("div");
+    corpo.className = "corpo";
     caixa.append(topo, corpo);
     raiz.append(estilo, caixa);
     document.documentElement.appendChild(host);
@@ -77,6 +81,7 @@
       fechar() {
         clearTimeout(painel.timer);
         document.removeEventListener("click", foraTresVezes, true);
+        document.removeEventListener("keydown", aoTeclar, true);
         host.remove();
       },
       // O painel não fecha sozinho: só pelo botão × ou com 3 cliques fora dele em menos de 1 segundo. O parâmetro
@@ -97,6 +102,10 @@
       if (cliquesFora.length >= 3) painel.fechar();
     }
     document.addEventListener("click", foraTresVezes, true);
+    function aoTeclar(ev) {
+      if (ev.key === "Escape") painel.fechar();
+    }
+    document.addEventListener("keydown", aoTeclar, true);
     return painel;
   }
 
