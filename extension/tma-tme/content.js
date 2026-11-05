@@ -360,27 +360,30 @@
     let offsetX = 0;
     let offsetY = 0;
 
+    const mover = (e) => {
+      el.style.left = `${e.clientX - offsetX}px`;
+      el.style.top = `${e.clientY - offsetY}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+    };
+    const soltar = () => {
+      document.removeEventListener("mousemove", mover);
+      document.removeEventListener("mouseup", soltar);
+      if (!dragging) return;
+      dragging = false;
+      el.classList.remove("dragging");
+      saveState({ left: el.style.left, top: el.style.top });
+    };
+
+    // Os ouvintes do document só existem enquanto se arrasta (antes ficavam presos à página para sempre).
     handle.addEventListener("mousedown", (e) => {
       if (e.target.closest(".hbtn")) return; // clique nos botões do cabeçalho não arrasta
       dragging = true;
       el.classList.add("dragging");
       offsetX = e.clientX - el.offsetLeft;
       offsetY = e.clientY - el.offsetTop;
-    });
-
-    document.addEventListener("mousemove", (e) => {
-      if (!dragging) return;
-      el.style.left = `${e.clientX - offsetX}px`;
-      el.style.top = `${e.clientY - offsetY}px`;
-      el.style.right = "auto";
-      el.style.bottom = "auto";
-    });
-
-    document.addEventListener("mouseup", () => {
-      if (!dragging) return;
-      dragging = false;
-      el.classList.remove("dragging");
-      saveState({ left: el.style.left, top: el.style.top });
+      document.addEventListener("mousemove", mover);
+      document.addEventListener("mouseup", soltar);
     });
   }
 
@@ -584,6 +587,7 @@
 
   let timer = null;
   let pedido = 0; // só a resposta do pedido mais recente é desenhada
+  let ultimaAssinatura = null;
 
   async function refresh(el) {
     const meu = ++pedido;
@@ -606,7 +610,13 @@
     }
     renderMetrics(el, resp.data);
     ajustarAltura(el); // conteúdo pode ter mudado de tamanho (ex.: aviso de erro)
-    saveState({ lastMetrics: resp.data });
+    // Só grava quando algo mudou além da hora: cada gravação acorda o onChanged de todas as abas com widget.
+    const { updatedAt, ...semHora } = resp.data;
+    const assinatura = JSON.stringify(semHora);
+    if (assinatura !== ultimaAssinatura) {
+      ultimaAssinatura = assinatura;
+      saveState({ lastMetrics: resp.data });
+    }
   }
 
   /** Estado desta aba no background: false = mostrar aqui, true = fechado aqui, null = nunca mandou mostrar. */
@@ -629,11 +639,23 @@
   /** Consulta a API só enquanto o widget está à vista nesta aba. */
   function ligar(el) {
     if (timer) return;
-    timer = setInterval(() => refresh(el).catch(() => {}), REFRESH_MS);
+    timer = setInterval(() => {
+      if (!document.hidden) refresh(el).catch(() => {}); // aba em segundo plano não consulta a API
+    }, REFRESH_MS);
     refresh(el).catch(() => {});
+    if (!aoVoltar) {
+      aoVoltar = () => {
+        if (timer && !document.hidden && el.style.display !== "none") refresh(el).catch(() => {});
+      };
+      document.addEventListener("visibilitychange", aoVoltar);
+    }
   }
 
+  let aoVoltar = null;
+
   function desligar() {
+    if (aoVoltar) document.removeEventListener("visibilitychange", aoVoltar);
+    aoVoltar = null;
     if (timer) clearInterval(timer);
     timer = null;
   }

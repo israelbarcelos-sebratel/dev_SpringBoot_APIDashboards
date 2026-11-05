@@ -1,0 +1,123 @@
+// Testes unitários/integração leve dos pontos que vazavam memória. Uso: npm test  (ou TMA_DIR=<pasta> para outra versão)
+import test from "node:test";
+import assert from "node:assert/strict";
+import vm from "node:vm";
+import fs from "node:fs";
+import path from "node:path";
+import { criarAmbiente, gcCompleto } from "./lib/ambiente.mjs";
+
+const DIR = path.resolve(process.env.TMA_DIR || "../tma-tme");
+const RESULTADO = { status: "livre", telefone: "11999990000", historico: [], autoisp: { recentes: [] } };
+const responder = (msg) => (msg.type === "massivaTelefone" ? { ok: true, data: RESULTADO } : { ok: true });
+
+function ligacao(amb, telefone, extra = {}) {
+  amb.w.postMessage({ source: "sebratel-native-hook", evento: "AgentConnect", dados: { callerNumber: telefone, agent: "1234", ...extra } });
+}
+const esperar = () => new Promise((r) => setImmediate(r));
+
+test("chamada.js: mapa de telefones vistos não cresce sem limite", async () => {
+  const amb = criarAmbiente({ dir: DIR, responder });
+  amb.carregar("massiva-ui.js", "chamada.js");
+  for (let i = 0; i < 3000; i++) {
+    ligacao(amb, `1199${String(1000000 + i)}`);
+    amb.avancar(30_000);
+    if (i % 50 === 0) await esperar();
+  }
+  await esperar();
+  const tam = amb.w.__sebratelChamadaTeste.tamanhoVistos?.();
+  assert.ok(tam !== undefined, "versão sem gancho de diagnóstico tamanhoVistos");
+  assert.ok(tam <= 200, `vistos=${tam}`);
+  amb.fechar();
+});
+
+test("chamada.js: mesmo telefone dentro da janela de 60 s consulta só uma vez", async () => {
+  const amb = criarAmbiente({ dir: DIR, responder });
+  amb.carregar("massiva-ui.js", "chamada.js");
+  ligacao(amb, "11988887777"); ligacao(amb, "11988887777");
+  await esperar();
+  assert.equal(amb.contagem.mensagens.massivaTelefone, 1);
+  amb.avancar(61_000);
+  ligacao(amb, "11988887777");
+  await esperar();
+  assert.equal(amb.contagem.mensagens.massivaTelefone, 2);
+  amb.fechar();
+});
+
+test("massiva-ui: trocar de painel solta os ouvintes do painel anterior", async () => {
+  const amb = criarAmbiente({ dir: DIR, responder });
+  amb.carregar("massiva-ui.js");
+  amb.w.document.querySelectorAll("div"); // o jsdom registra ouvintes internos na 1ª consulta: entram na base
+  const base = amb.ouvintes();
+  for (let i = 0; i < 500; i++) amb.w.SebratelMassivaUI.criar(`p${i}`);
+  assert.equal(amb.ouvintes() - base, 2, "só o painel atual deve ter click+keydown no document");
+  assert.equal(amb.w.document.querySelectorAll("#sebratel-massiva-host").length, 1);
+  amb.w.document.body.click();
+  assert.equal(amb.ouvintes(), base, "clique fora fecha e solta tudo");
+  amb.fechar();
+});
+
+test("massiva-ui: 2000 painéis criados e fechados não retêm memória", async () => {
+  const amb = criarAmbiente({ dir: DIR, responder });
+  amb.carregar("massiva-ui.js");
+  const ciclo = (n) => { for (let i = 0; i < n; i++) { const p = amb.w.SebratelMassivaUI.criar("x"); p.corpo.append(...Array.from({ length: 30 }, (_, k) => amb.w.SebratelMassivaUI.linha("detalhe", `linha ${k}`.repeat(20)))); } };
+  ciclo(500); const antes = gcCompleto();
+  ciclo(2000); const depois = gcCompleto();
+  assert.ok((depois - antes) / 1e6 < 8, `cresceu ${((depois - antes) / 1e6).toFixed(1)} MB`);
+  amb.fechar();
+});
+
+test("content.js: não regrava o storage quando as métricas não mudaram e não consulta com a aba oculta", async () => {
+  let n = 0;
+  const amb = criarAmbiente({
+    dir: DIR,
+    responder: (m) => {
+      if (m.type === "widgetAba") return { oculto: false };
+      if (m.type === "getMetrics") { n++; return { ok: true, data: { agent: "Fulano", updatedAt: new Date(amb.relogio.agora).toISOString(), native: { available: true }, matrix: { available: true } } }; }
+      return { ok: true };
+    },
+  });
+  amb.carregar("content.js");
+  await esperar(); await esperar();
+  const base = amb.contagem.storageSet;
+  for (let i = 0; i < 40; i++) { amb.avancar(15_000); await esperar(); }
+  assert.ok(amb.contagem.storageSet - base <= 1, `gravações: ${amb.contagem.storageSet - base}`);
+  assert.ok(n >= 40, `consultas visíveis: ${n}`);
+  amb.definirOculta(true);
+  const antes = n;
+  for (let i = 0; i < 40; i++) { amb.avancar(15_000); await esperar(); }
+  assert.equal(n, antes, "aba oculta não pode consultar a API");
+  amb.definirOculta(false);
+  await esperar();
+  assert.equal(n, antes + 1, "ao voltar consulta na hora");
+  amb.fechar();
+});
+
+test("content.js: ouvintes de arrastar só existem durante o arrasto", async () => {
+  const amb = criarAmbiente({ dir: DIR, responder: (m) => (m.type === "widgetAba" ? { oculto: false } : { ok: false, error: "x" }) });
+  amb.carregar("content.js");
+  await esperar(); await esperar();
+  const w = amb.w;
+  const cab = w.document.querySelector("#sebratel-tma-widget .header");
+  assert.ok(cab, "widget montado");
+  const parado = amb.ouvintes();
+  cab.dispatchEvent(new w.MouseEvent("mousedown", { bubbles: true, clientX: 5, clientY: 5 }));
+  assert.equal(amb.ouvintes(), parado + 2);
+  w.document.dispatchEvent(new w.MouseEvent("mouseup"));
+  assert.equal(amb.ouvintes(), parado);
+  amb.fechar();
+});
+
+test("background.js: marcarAba em paralelo não perde nenhuma aba", async () => {
+  let guardado = {};
+  const chrome = {
+    storage: { session: { get: async () => ({ widgetAbas: JSON.parse(JSON.stringify(guardado.widgetAbas || {})) }), set: async (o) => { await new Promise((r) => setImmediate(r)); guardado = JSON.parse(JSON.stringify(o)); } }, local: { get: async () => ({}), set: async () => {} } },
+    tabs: { onRemoved: { addListener() {} }, query: async () => [] },
+    runtime: { onInstalled: { addListener() {} }, onUpdateAvailable: { addListener() {} }, onMessage: { addListener() {} }, getManifest: () => ({ version: "1.0.0" }) },
+    alarms: { create() {}, onAlarm: { addListener() {} } },
+    action: { setIcon: async () => {}, setTitle: async () => {} },
+  };
+  const ctx = vm.createContext({ chrome, importScripts() {}, SebratelApi: { NATIVE: "http://x" }, fetch: async () => ({ text: async () => "" }), console, setTimeout, Date, URL });
+  vm.runInContext(fs.readFileSync(path.join(DIR, "background.js"), "utf8") + "\n;globalThis.__marcar = marcarAba;", ctx);
+  await Promise.all(Array.from({ length: 20 }, (_, i) => ctx.__marcar(100 + i, false)));
+  assert.equal(Object.keys(guardado.widgetAbas).length, 20);
+});

@@ -1,0 +1,14 @@
+{
+  "name": "tma-tme-extension-tests",
+  "private": true,
+  "type": "module",
+  "description": "Testes e simulação de uso prolongado (24h comprimidas) da extensão TMA/TME. Não faz parte do pacote da extensão.",
+  "scripts": {
+    "test": "node --expose-gc --test unit.test.mjs",
+    "soak": "node --expose-gc soak-24h.mjs",
+    "soak:rapido": "node --expose-gc soak-24h.mjs --duracao-min 1"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}

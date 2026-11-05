@@ -10,11 +10,17 @@ async function abas() {
   return r[ABAS_KEY] || {};
 }
 
-async function marcarAba(tabId, oculto) {
-  const a = await abas();
-  if (oculto === null) delete a[tabId];
-  else a[tabId] = oculto;
-  await chrome.storage.session.set({ [ABAS_KEY]: a });
+// Leitura-alteração-gravação em fila: duas abas mudando ao mesmo tempo não se sobrescrevem.
+let filaAbas = Promise.resolve();
+function marcarAba(tabId, oculto) {
+  const tarefa = filaAbas.then(async () => {
+    const a = await abas();
+    if (oculto === null) delete a[tabId];
+    else a[tabId] = oculto;
+    await chrome.storage.session.set({ [ABAS_KEY]: a });
+  });
+  filaAbas = tarefa.catch(() => {});
+  return tarefa;
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -148,6 +154,7 @@ async function iconeDourado() {
     const canvas = new OffscreenCanvas(t, t);
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bmp, 0, 0, t, t);
+    bmp.close(); // libera a memória gráfica na hora, sem esperar o GC
     const img = ctx.getImageData(0, 0, t, t);
     douradoNosVermelhos(img.data, t);
     imageData[t] = img;

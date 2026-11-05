@@ -1,0 +1,309 @@
+{
+  "rotulo": "original",
+  "dir": "C:\\Users\\israel.barcelos\\Sebratel\\.base-tma\\extension\\tma-tme",
+  "duracaoMin": 14,
+  "pico": 720,
+  "amostras": [
+    {
+      "hora": 1,
+      "ligacoes": 12,
+      "heapMB": 26,
+      "ouvintes": 11,
+      "picoOuvintes": 15,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 13,
+      "getMetrics": 241
+    },
+    {
+      "hora": 2,
+      "ligacoes": 17,
+      "heapMB": 26.7,
+      "ouvintes": 13,
+      "picoOuvintes": 29,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 16,
+      "getMetrics": 239
+    },
+    {
+      "hora": 3,
+      "ligacoes": 26,
+      "heapMB": 26.9,
+      "ouvintes": 17,
+      "picoOuvintes": 29,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 25,
+      "getMetrics": 241
+    },
+    {
+      "hora": 4,
+      "ligacoes": 39,
+      "heapMB": 26.9,
+      "ouvintes": 9,
+      "picoOuvintes": 31,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 38,
+      "getMetrics": 240
+    },
+    {
+      "hora": 5,
+      "ligacoes": 55,
+      "heapMB": 27.2,
+      "ouvintes": 11,
+      "picoOuvintes": 31,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 54,
+      "getMetrics": 240
+    },
+    {
+      "hora": 6,
+      "ligacoes": 74,
+      "heapMB": 27.5,
+      "ouvintes": 17,
+      "picoOuvintes": 31,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 73,
+      "getMetrics": 240
+    },
+    {
+      "hora": 7,
+      "ligacoes": 94,
+      "heapMB": 27.6,
+      "ouvintes": 13,
+      "picoOuvintes": 31,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 93,
+      "getMetrics": 240
+    },
+    {
+      "hora": 8,
+      "ligacoes": 118,
+      "heapMB": 25.5,
+      "ouvintes": 13,
+      "picoOuvintes": 31,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 117,
+      "getMetrics": 240
+    },
+    {
+      "hora": 9,
+      "ligacoes": 143,
+      "heapMB": 24.4,
+      "ouvintes": 9,
+      "picoOuvintes": 35,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 142,
+      "getMetrics": 240
+    },
+    {
+      "hora": 10,
+      "ligacoes": 170,
+      "heapMB": 24.7,
+      "ouvintes": 11,
+      "picoOuvintes": 41,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 169,
+      "getMetrics": 240
+    },
+    {
+      "hora": 11,
+      "ligacoes": 199,
+      "heapMB": 24.8,
+      "ouvintes": 9,
+      "picoOuvintes": 41,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 198,
+      "getMetrics": 240
+    },
+    {
+      "hora": 12,
+      "ligacoes": 230,
+      "heapMB": 24.8,
+      "ouvintes": 13,
+      "picoOuvintes": 41,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 229,
+      "getMetrics": 239
+    },
+    {
+      "hora": 13,
+      "ligacoes": 262,
+      "heapMB": 24.8,
+      "ouvintes": 11,
+      "picoOuvintes": 41,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 14,
+      "ligacoes": 296,
+      "heapMB": 25,
+      "ouvintes": 11,
+      "picoOuvintes": 41,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 15,
+      "ligacoes": 332,
+      "heapMB": 25.4,
+      "ouvintes": 9,
+      "picoOuvintes": 43,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 16,
+      "ligacoes": 369,
+      "heapMB": 25.5,
+      "ouvintes": 9,
+      "picoOuvintes": 43,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 241
+    },
+    {
+      "hora": 17,
+      "ligacoes": 408,
+      "heapMB": 25.6,
+      "ouvintes": 11,
+      "picoOuvintes": 43,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 239,
+      "getMetrics": 239
+    },
+    {
+      "hora": 18,
+      "ligacoes": 449,
+      "heapMB": 25.7,
+      "ouvintes": 9,
+      "picoOuvintes": 43,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 19,
+      "ligacoes": 490,
+      "heapMB": 26.8,
+      "ouvintes": 43,
+      "picoOuvintes": 43,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 20,
+      "ligacoes": 534,
+      "heapMB": 25.8,
+      "ouvintes": 9,
+      "picoOuvintes": 51,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 21,
+      "ligacoes": 578,
+      "heapMB": 26.2,
+      "ouvintes": 19,
+      "picoOuvintes": 51,
+      "nos": 86,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 22,
+      "ligacoes": 624,
+      "heapMB": 26,
+      "ouvintes": 9,
+      "picoOuvintes": 51,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 23,
+      "ligacoes": 671,
+      "heapMB": 26.2,
+      "ouvintes": 9,
+      "picoOuvintes": 51,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    },
+    {
+      "hora": 24,
+      "ligacoes": 720,
+      "heapMB": 26.2,
+      "ouvintes": 9,
+      "picoOuvintes": 57,
+      "nos": 85,
+      "vistos": null,
+      "storageSet": 240,
+      "getMetrics": 240
+    }
+  ],
+  "criterios": [
+    {
+      "nome": "Heap estável (inclinação < 0,5 MB/h virtual, após aquecer)",
+      "ok": true,
+      "valor": "0.06 MB/h"
+    },
+    {
+      "nome": "Crescimento do heap da hora 7 à 24 < 10 MB",
+      "ok": true,
+      "valor": "-1.4 MB"
+    },
+    {
+      "nome": "Ouvintes em document/window limitados (pico <= 25)",
+      "ok": false,
+      "valor": "57"
+    },
+    {
+      "nome": "Mapa de telefones vistos <= 200",
+      "ok": false,
+      "valor": "null"
+    },
+    {
+      "nome": "Nós de DOM estáveis (fim <= hora 7 + 5)",
+      "ok": true,
+      "valor": "86 -> 85"
+    },
+    {
+      "nome": "Aba oculta (horas 2-6) não consulta a API",
+      "ok": false,
+      "valor": "1200 consultas"
+    },
+    {
+      "nome": "Estado do widget só é gravado quando os números mudam",
+      "ok": false,
+      "valor": "4046 gravações / 1668 mudanças / 5760 consultas"
+    }
+  ]
+}

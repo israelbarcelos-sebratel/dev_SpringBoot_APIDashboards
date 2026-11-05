@@ -10,6 +10,15 @@
   const CONFIG_KEY = "sebratelMassiva";
   const JANELA_MS = 60000; // mesmo telefone dentro deste prazo = mesma ligação (AgentCalled + AgentConnect)
   const vistos = new Map(); // telefone -> instante da última exibição
+  const VISTOS_MAX = 200; // teto de segurança: a aba da Native fica aberta o dia todo
+
+  /** Esquece o que já passou da janela (e, no pior caso, o mais antigo): o mapa não cresce com o tempo de uso. */
+  function marcarVisto(chave, agora) {
+    vistos.set(chave, agora);
+    if (vistos.size <= 20) return;
+    for (const [k, t] of vistos) if (agora - t >= JANELA_MS) vistos.delete(k);
+    while (vistos.size > VISTOS_MAX) vistos.delete(vistos.keys().next().value);
+  }
 
   function digitos(valor) {
     return String(valor ?? "").replace(/\D/g, "");
@@ -72,7 +81,7 @@
       const chave = `dig:${digitado}`;
       const agoraDig = Date.now();
       if (agoraDig - (vistos.get(chave) || 0) < JANELA_MS) return;
-      vistos.set(chave, agoraDig);
+      marcarVisto(chave, agoraDig);
       const ui = window.SebratelMassivaUI;
       const painel = ui.criar("Ligação recebida");
       painel.corpo.replaceChildren(
@@ -94,7 +103,7 @@
     }
     const agora = Date.now();
     if (agora - (vistos.get(telefone) || 0) < JANELA_MS) return;
-    vistos.set(telefone, agora);
+    marcarVisto(telefone, agora);
 
     await consultar("Ligação recebida", { type: "massivaTelefone", telefone });
   }
@@ -121,7 +130,7 @@
     }
   }
 
-  window.__sebratelChamadaTeste = { digitadoNaUra, telefoneExterno }; // só para teste/diagnóstico
+  window.__sebratelChamadaTeste = { digitadoNaUra, telefoneExterno, tamanhoVistos: () => vistos.size }; // só para teste/diagnóstico
 
   window.addEventListener("message", function aoReceber(ev) {
     // Script órfão (extensão atualizada com a aba aberta): o background já injetou uma cópia nova; esta se cala.

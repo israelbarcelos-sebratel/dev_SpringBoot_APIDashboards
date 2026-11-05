@@ -50,7 +50,10 @@
 
   const NOMES = { telefone: "Ligação", documento: "Busca por CPF/CNPJ" };
 
+  let painelAtual = null; // só um painel por vez: o anterior solta seus ouvintes do document ao ser trocado
+
   function criar(rotulo) {
+    painelAtual?.fechar();
     document.getElementById("sebratel-massiva-host")?.remove();
     const host = document.createElement("div");
     host.id = "sebratel-massiva-host";
@@ -79,6 +82,7 @@
     const painel = {
       host, caixa, corpo, titulo, raiz, timer: null,
       fechar() {
+        if (painelAtual === painel) painelAtual = null;
         clearTimeout(painel.timer);
         document.removeEventListener("click", foraDoPainel, true);
         document.removeEventListener("keydown", aoTeclar, true);
@@ -103,6 +107,7 @@
       if (ev.key === "Escape") painel.fechar();
     }
     document.addEventListener("keydown", aoTeclar, true);
+    painelAtual = painel;
     return painel;
   }
 
