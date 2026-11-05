@@ -107,6 +107,73 @@ test("content.js: ouvintes de arrastar só existem durante o arrasto", async () 
   amb.fechar();
 });
 
+test("content.js: aba Native/Matrix arrasta para fora, vira painel móvel, encaixa de volta e lembra a posição", async () => {
+  const amb = criarAmbiente({ dir: DIR, responder: (m) => (m.type === "widgetAba" ? { oculto: false } : { ok: false, error: "x" }) });
+  amb.carregar("content.js");
+  await esperar(); await esperar();
+  const w = amb.w;
+  const sec = w.document.querySelector("#sebratel-section-native");
+  const titulo = sec.querySelector(".section-title");
+  const mouse = (tipo, x, y) => new w.MouseEvent(tipo, { bubbles: true, clientX: x, clientY: y, button: 0 });
+  // o jsdom não faz layout: a posição "na tela" da aba é a que o script gravou no style
+  sec.getBoundingClientRect = () => ({ left: parseFloat(sec.style.left) || 0, top: parseFloat(sec.style.top) || 0, width: 208, height: 100 });
+  const parado = amb.ouvintes();
+
+  // clique sem arrastar não solta a aba
+  titulo.dispatchEvent(mouse("mousedown", 10, 10));
+  w.document.dispatchEvent(mouse("mousemove", 12, 11));
+  w.document.dispatchEvent(mouse("mouseup", 12, 11));
+  assert.ok(!sec.classList.contains("destacada"), "um clique não deve soltar a aba");
+  assert.equal(amb.ouvintes(), parado, "ouvintes soltos após o clique");
+
+  // arrasto de verdade solta e posiciona
+  titulo.dispatchEvent(mouse("mousedown", 10, 10));
+  assert.equal(amb.ouvintes(), parado + 2, "ouvintes só durante o arrasto");
+  w.document.dispatchEvent(mouse("mousemove", 300, 200));
+  w.document.dispatchEvent(mouse("mouseup", 300, 200));
+  assert.equal(amb.ouvintes(), parado);
+  assert.ok(sec.classList.contains("destacada"));
+  assert.equal(sec.style.left, "290px");
+  assert.equal(sec.style.top, "190px");
+  assert.ok(w.document.querySelector("#sebratel-tma-widget").classList.contains("tem-destacada"));
+  await esperar(); // saveState grava de forma assíncrona
+  assert.deepEqual(amb.armazenamento.sebratelWidgetState.destacadas.native, { left: "290px", top: "190px" });
+
+  // já solta, arrastar só move
+  titulo.dispatchEvent(mouse("mousedown", 300, 200));
+  w.document.dispatchEvent(mouse("mousemove", 400, 260));
+  w.document.dispatchEvent(mouse("mouseup", 400, 260));
+  assert.equal(sec.style.left, "390px");
+
+  // arrastar para fora da janela é contido
+  titulo.dispatchEvent(mouse("mousedown", 400, 260));
+  w.document.dispatchEvent(mouse("mousemove", 99999, 99999));
+  w.document.dispatchEvent(mouse("mouseup", 99999, 99999));
+  assert.ok(parseFloat(sec.style.left) <= w.innerWidth, "ficou fora da janela");
+  assert.ok(parseFloat(sec.style.top) <= w.innerHeight, "ficou fora da janela");
+
+  // duplo clique no título encaixa de volta
+  titulo.dispatchEvent(new w.MouseEvent("dblclick", { bubbles: true }));
+  assert.ok(!sec.classList.contains("destacada"));
+  assert.equal(sec.style.left, "");
+  await esperar();
+  assert.equal(amb.armazenamento.sebratelWidgetState.destacadas.native, null);
+  assert.ok(!w.document.querySelector("#sebratel-tma-widget").classList.contains("tem-destacada"));
+  amb.fechar();
+});
+
+test("content.js: abas soltas voltam onde estavam ao reabrir a página", async () => {
+  const amb = criarAmbiente({ dir: DIR, responder: (m) => (m.type === "widgetAba" ? { oculto: false } : { ok: false, error: "x" }) });
+  amb.armazenamento.sebratelWidgetState = { destacadas: { native: null, matrix: { left: "120px", top: "80px" } } };
+  amb.carregar("content.js");
+  await esperar(); await esperar();
+  const mx = amb.w.document.querySelector("#sebratel-section-matrix");
+  assert.ok(mx.classList.contains("destacada"));
+  assert.equal(mx.style.left, "120px");
+  assert.ok(!amb.w.document.querySelector("#sebratel-section-native").classList.contains("destacada"));
+  amb.fechar();
+});
+
 test("background.js: marcarAba em paralelo não perde nenhuma aba", async () => {
   let guardado = {};
   const chrome = {

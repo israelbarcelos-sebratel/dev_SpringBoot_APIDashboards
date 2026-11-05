@@ -48,6 +48,9 @@
   const ICON_RESTAURAR =
     '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="5" y="5" rx="2"/></svg>';
 
+  const ICON_ENCAIXAR =
+    '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/></svg>';
+
   /** Minimizado = só o cabeçalho (com os botões) à mostra; clicar de novo restaura. */
   function aplicarMinimizado(el, minimizado) {
     el.classList.toggle("minimizado", Boolean(minimizado));
@@ -129,7 +132,7 @@
       </div>
       <div class="body">
         <div class="section" id="sebratel-section-native">
-          <div class="section-title"><span class="marker">Native · hoje</span><span class="section-meta" id="sebratel-native-meta"></span></div>
+          <div class="section-title"><span class="marker">Native · hoje</span><span class="section-meta" id="sebratel-native-meta"></span><button type="button" class="dock-btn" title="Encaixar de volta no widget">${ICON_ENCAIXAR}</button></div>
           <div class="metric-row">
             <span class="metric-label">TMA</span>
             <span class="metric-value" id="sebratel-native-tma">--:--</span>
@@ -146,7 +149,7 @@
           <div class="section-error" id="sebratel-native-error" hidden></div>
         </div>
         <div class="section" id="sebratel-section-matrix">
-          <div class="section-title"><span class="marker">Matrix · hoje</span><span class="section-meta" id="sebratel-matrix-meta"></span></div>
+          <div class="section-title"><span class="marker">Matrix · hoje</span><span class="section-meta" id="sebratel-matrix-meta"></span><button type="button" class="dock-btn" title="Encaixar de volta no widget">${ICON_ENCAIXAR}</button></div>
           <div class="metric-row">
             <span class="metric-label">TMA</span>
             <span class="metric-value" id="sebratel-matrix-tma">--:--</span>
@@ -224,6 +227,7 @@
 
     makeDraggable(el, el.querySelector(".header"));
     makeResizable(el);
+    makeSectionsMovable(el);
     return el;
   }
 
@@ -251,6 +255,13 @@
   function ajustarAltura(el) {
     if (el.style.display === "none" || el.classList.contains("minimizado")) return; // medir com o corpo oculto daria 0
     const body = corpo(el);
+    if (el.classList.contains("tem-destacada")) {
+      // Com uma aba solta não há o que rolar nem alternar: o corpo mostra a que sobrou, inteira.
+      body.style.height = "";
+      el.classList.remove("compacto");
+      el.querySelector(".switcher").hidden = true;
+      return;
+    }
     const antes = body.style.height;
     body.style.height = ""; // mede o tamanho natural
     const { min, total, max } = limitesAltura(el);
@@ -385,6 +396,115 @@
       document.addEventListener("mousemove", mover);
       document.addEventListener("mouseup", soltar);
     });
+  }
+
+  // ---- Abas (Native/Matrix) soltas: arrastar o título para fora vira um painel flutuante ----
+
+  const LIMIAR_DESTACAR = 6; // px de arrasto antes de soltar a aba (evita soltar num clique)
+  const SECOES = ["native", "matrix"];
+
+  /** Mantém ao menos o título da aba solta dentro da janela. */
+  function limitar(x, y) {
+    return {
+      x: Math.min(Math.max(x, 0), Math.max(0, window.innerWidth - 80)),
+      y: Math.min(Math.max(y, 0), Math.max(0, window.innerHeight - 30)),
+    };
+  }
+
+  function atualizarDestaques(el) {
+    const soltas = SECOES.filter((s) => secao(el, s).classList.contains("destacada"));
+    el.classList.toggle("tem-destacada", soltas.length > 0);
+    el.classList.toggle("sem-corpo", soltas.length === SECOES.length);
+    ajustarAltura(el);
+  }
+
+  function destacar(el, s, x, y) {
+    const sec = secao(el, s);
+    if (!sec.classList.contains("destacada")) sec.style.width = `${sec.getBoundingClientRect().width || 208}px`;
+    sec.classList.add("destacada");
+    const p = limitar(x, y);
+    sec.style.left = `${p.x}px`;
+    sec.style.top = `${p.y}px`;
+    atualizarDestaques(el);
+  }
+
+  function encaixar(el, s) {
+    const sec = secao(el, s);
+    sec.classList.remove("destacada");
+    sec.style.left = sec.style.top = sec.style.width = "";
+    atualizarDestaques(el);
+    salvarDestaques(el);
+  }
+
+  function salvarDestaques(el) {
+    const destacadas = {};
+    for (const s of SECOES) {
+      const sec = secao(el, s);
+      destacadas[s] = sec.classList.contains("destacada") ? { left: sec.style.left, top: sec.style.top } : null;
+    }
+    saveState({ destacadas });
+  }
+
+  function restaurarDestaques(el, salvas) {
+    if (!salvas || typeof salvas !== "object") return;
+    for (const s of SECOES) {
+      const p = salvas[s];
+      if (p && parseFloat(p.left) >= 0 && parseFloat(p.top) >= 0) destacar(el, s, parseFloat(p.left), parseFloat(p.top));
+    }
+  }
+
+  function makeSectionsMovable(el) {
+    for (const s of SECOES) {
+      const sec = secao(el, s);
+      const titulo = sec.querySelector(".section-title");
+      titulo.addEventListener("dblclick", () => {
+        if (sec.classList.contains("destacada")) encaixar(el, s);
+      });
+      sec.querySelector(".dock-btn").addEventListener("click", () => encaixar(el, s));
+
+      // Os ouvintes do document só existem enquanto se arrasta, como no cabeçalho do widget.
+      titulo.addEventListener("mousedown", (e) => {
+        if (e.button !== 0 || e.target.closest(".dock-btn")) return;
+        const r = sec.getBoundingClientRect();
+        const dx = e.clientX - r.left;
+        const dy = e.clientY - r.top;
+        const x0 = e.clientX;
+        const y0 = e.clientY;
+        let moveu = false;
+
+        const mover = (ev) => {
+          const solta = sec.classList.contains("destacada");
+          if (!solta && Math.hypot(ev.clientX - x0, ev.clientY - y0) < LIMIAR_DESTACAR) return;
+          moveu = true;
+          sec.classList.add("movendo");
+          destacar(el, s, ev.clientX - dx, ev.clientY - dy);
+        };
+        const soltar = () => {
+          document.removeEventListener("mousemove", mover);
+          document.removeEventListener("mouseup", soltar);
+          sec.classList.remove("movendo");
+          if (moveu) salvarDestaques(el);
+        };
+        document.addEventListener("mousemove", mover);
+        document.addEventListener("mouseup", soltar);
+      });
+    }
+  }
+
+  /** Se a janela encolheu, traz de volta as abas soltas que ficaram fora dela. */
+  function garantirDestacadasVisiveis(el) {
+    let mudou = false;
+    for (const s of SECOES) {
+      const sec = secao(el, s);
+      if (!sec.classList.contains("destacada")) continue;
+      const p = limitar(parseFloat(sec.style.left) || 0, parseFloat(sec.style.top) || 0);
+      if (`${p.x}px` !== sec.style.left || `${p.y}px` !== sec.style.top) {
+        sec.style.left = `${p.x}px`;
+        sec.style.top = `${p.y}px`;
+        mudou = true;
+      }
+    }
+    if (mudou) salvarDestaques(el);
   }
 
   /**
@@ -678,12 +798,14 @@
     }
     alturaDesejada = typeof state.altura === "number" ? state.altura : null;
     const secaoSalva = state.secao === "matrix" ? "matrix" : "native";
+    restaurarDestaques(el, state.destacadas);
     ajustarAltura(el);
     if (el.classList.contains("compacto")) irParaSecao(el, secaoSalva, false);
     garantirVisivel(el);
     window.addEventListener("resize", () => {
       ajustarAltura(el);
       garantirVisivel(el);
+      garantirDestacadasVisiveis(el);
     });
 
     // Mostra o último dado conhecido imediatamente, sem esperar o fetch,

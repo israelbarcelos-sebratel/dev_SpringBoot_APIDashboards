@@ -273,8 +273,64 @@
   padding-top: 10px;
 }
 
+/* Aba solta (Native/Matrix arrastada para fora): painel flutuante próprio. position:fixed escapa do
+   overflow:hidden do widget, que não tem transform/filter. */
+#sebratel-tma-widget .section.destacada {
+  position: fixed;
+  z-index: 2147483647;
+  margin: 0;
+  padding: 8px 12px 8px;
+  background: var(--stw-card);
+  border: 1px solid var(--stw-border);
+  border-radius: 12px;
+  box-shadow: var(--stw-shadow);
+}
+#sebratel-tma-widget .section.destacada.movendo {
+  opacity: 0.88;
+}
+#sebratel-tma-widget .dock-btn {
+  all: unset;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--stw-text-secondary);
+}
+#sebratel-tma-widget .section.destacada .dock-btn {
+  display: inline-flex;
+}
+#sebratel-tma-widget .dock-btn:hover {
+  background: var(--stw-primary-soft);
+  color: var(--stw-text-primary);
+}
+#sebratel-tma-widget .dock-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--stw-primary-contrast);
+}
+#sebratel-tma-widget.sem-corpo .body {
+  display: none;
+}
+#sebratel-tma-widget.tem-destacada .resize-grip {
+  display: none;
+}
+/* Quando a outra aba está solta, a que sobrou perde a borda de separação. */
+#sebratel-tma-widget .section:not(.destacada) {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 4px;
+}
+#sebratel-tma-widget .section:not(.destacada) + .section:not(.destacada) {
+  border-top: 1px solid var(--stw-border-subtle);
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
 /* Marcador de seção do DS: acento âmbar de 4px + título. */
 #sebratel-tma-widget .section-title {
+  cursor: grab;
   display: flex;
   align-items: center;
   justify-content: space-between;
