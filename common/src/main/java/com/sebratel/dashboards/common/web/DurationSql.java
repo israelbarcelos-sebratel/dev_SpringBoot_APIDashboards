@@ -23,4 +23,17 @@ public final class DurationSql {
     public static String nonNegative(String secondsExpression) {
         return "CASE WHEN (" + secondsExpression + ") >= 0 THEN (" + secondsExpression + ") END";
     }
+
+    /**
+     * Like {@link #nonNegative} but also drops durations above {@code maxSeconds} (outliers such as a
+     * chat that sat in the queue for hours), so a few of them don't dominate the average. A null cap
+     * means no ceiling.
+     */
+    public static String bounded(String secondsExpression, Integer maxSeconds) {
+        if (maxSeconds == null) {
+            return nonNegative(secondsExpression);
+        }
+        return "CASE WHEN (" + secondsExpression + ") >= 0 AND (" + secondsExpression + ") <= " + maxSeconds
+                + " THEN (" + secondsExpression + ") END";
+    }
 }

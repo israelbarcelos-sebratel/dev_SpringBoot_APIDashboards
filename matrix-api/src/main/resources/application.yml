@@ -65,6 +65,7 @@ app:
         fim: data_atendimento
         formula: Início do atendimento − entrada na fila
         meta-segundos: 45     # TME até 45 s
+        max-segundos: 3600    # espera acima de 1 h é outlier (chat reaberto/esquecido na fila): fora da média
       # Tempos de interação que a Matrix já calcula ("HH:MM:SS").
       tmic:
         hms: tmic

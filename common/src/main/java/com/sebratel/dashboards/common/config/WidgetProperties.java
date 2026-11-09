@@ -150,9 +150,24 @@ public class WidgetProperties {
     public static class Metrica {
         private String formula;
         private Integer metaSegundos;
+        /** Ceiling for a valid sample (seconds); above it the row doesn't count in averages. Null = none. */
+        private Integer maxSegundos;
         private String hms;
         private String inicio;
         private String fim;
+
+        /** The metric in seconds as used by averages: NULL when missing, negative or above {@code maxSegundos}. */
+        public String expressaoValida() {
+            return DurationSql.bounded(expressaoSegundos(), maxSegundos);
+        }
+
+        public Integer getMaxSegundos() {
+            return maxSegundos;
+        }
+
+        public void setMaxSegundos(Integer maxSegundos) {
+            this.maxSegundos = maxSegundos;
+        }
 
         /** SQL for this metric in seconds; the column names come only from application.yml. */
         public String expressaoSegundos() {
