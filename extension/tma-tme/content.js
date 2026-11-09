@@ -145,6 +145,10 @@
             <span class="metric-label">TMEA<span class="metric-sub" id="sebratel-native-tmea-ref"></span></span>
             <span class="metric-value" id="sebratel-native-tmea">--:--</span>
           </div>
+          <div class="metric-row" id="sebratel-native-csat-row" hidden>
+            <span class="metric-label">CSAT<span class="metric-sub" id="sebratel-native-csat-ref"></span></span>
+            <span class="metric-value" id="sebratel-native-csat">--</span>
+          </div>
           <div class="count-row" id="sebratel-native-count"></div>
           <div class="section-error" id="sebratel-native-error" hidden></div>
         </div>
@@ -634,6 +638,7 @@
       setMetric(el, "#sebratel-native-tma", data.native.tma);
       setMetric(el, "#sebratel-native-tme", data.native.tme);
       setTmea(el, "native", data.native.tmea);
+      setCsat(el, "native", data.native.csat);
       setCount(el, "native", data.native.atendimentos);
     } else {
       nativeErrorEl.hidden = false;
@@ -642,6 +647,7 @@
       setMetric(el, "#sebratel-native-tma", null);
       setMetric(el, "#sebratel-native-tme", null);
       setTmea(el, "native", null);
+      setCsat(el, "native", null);
       setCount(el, "native", null);
     }
 
@@ -841,7 +847,7 @@
       renderMetrics(el, {
         agent: "carregando…",
         updatedAt: new Date().toISOString(),
-        native: { available: true },
+        native: { available: true, csat: null },
         matrix: { available: true, csat: null },
       });
       refresh(el).catch(() => {});
