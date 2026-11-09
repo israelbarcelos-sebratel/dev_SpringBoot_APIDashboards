@@ -55,8 +55,8 @@ app:
     # TMEA (tempo médio entre atendimentos): do fim de uma ligação (data_hora + espera + atendimento)
     # até o atendente atender a próxima (data_hora + espera).
     tmea:
-      inicio: "UNIX_TIMESTAMP(`data_hora`) + TIME_TO_SEC(`espera`)"
-      fim: "UNIX_TIMESTAMP(`data_hora`) + TIME_TO_SEC(`espera`) + TIME_TO_SEC(`atendimento`)"
+      inicio: "UNIX_TIMESTAMP(`data_hora`) + CASE WHEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`espera`), ''), '-')) >= 0 THEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`espera`), ''), '-')) END"
+      fim: "UNIX_TIMESTAMP(`data_hora`) + CASE WHEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`espera`), ''), '-')) >= 0 THEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`espera`), ''), '-')) END + CASE WHEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`atendimento`), ''), '-')) >= 0 THEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`atendimento`), ''), '-')) END"
       formula: Início da ligação − fim da ligação anterior
       max-intervalo-minutos: 60
       dias-referencia: 30
@@ -79,18 +79,18 @@ app:
     comportamento:
       pausas-sql: >-
         SELECT agente, UNIX_TIMESTAMP(data_hora_inicio) AS ini, NULLIF(UNIX_TIMESTAMP(data_hora_fim), 0) AS fim,
-        NULL AS tipo, TIME_TO_SEC(tempo_previsto_pausa) AS previsto, justificativa AS motivo
+        NULL AS tipo, TIME_TO_SEC(NULLIF(NULLIF(TRIM(tempo_previsto_pausa), ''), '-')) AS previsto, justificativa AS motivo
         FROM db_native_login WHERE evento = 'Pausa' AND data_hora_inicio >= {desde}
       # Tipo da pausa: casado no Java por atendente + início (join no banco levava ~25 s em 30 dias).
       tipos-sql: >-
         SELECT agente, UNIX_TIMESTAMP(data_hora) AS ini, pausa AS tipo FROM db_native_stops
         WHERE data_hora >= DATE_FORMAT({desde}, '%Y-%m-%d')
-      curtos-condicao: "`sentido` = 'Recebida' AND `desconexao` = 'Destino' AND TIME_TO_SEC(`atendimento`) < 10"
+      curtos-condicao: "`sentido` = 'Recebida' AND `desconexao` = 'Destino' AND TIME_TO_SEC(NULLIF(NULLIF(TRIM(`atendimento`), ''), '-')) BETWEEN 0 AND 9"
       curtos-rotulo: Ligações recebidas com menos de 10 s encerradas pelo atendente (desconexão = Destino)
       transferidas-condicao: "`desconexao` = 'Transferida'"
       # Ramal interno: número com até 4 dígitos (ex.: 1021).
       internas-condicao: "`sentido` = 'Efetuada' AND CHAR_LENGTH(`numero`) <= 4 AND `atendimento` IS NOT NULL"
-      internas-segundos: "TIME_TO_SEC(`atendimento`)"
+      internas-segundos: "CASE WHEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`atendimento`), ''), '-')) >= 0 THEN TIME_TO_SEC(NULLIF(NULLIF(TRIM(`atendimento`), ''), '-')) END"
       # Tempo logado: a Native só grava a sessão no logoff; a sessão atual é estimada pela atividade
       # (ligações e pausas) desde o último logoff.
       estimar-sessao-aberta: true

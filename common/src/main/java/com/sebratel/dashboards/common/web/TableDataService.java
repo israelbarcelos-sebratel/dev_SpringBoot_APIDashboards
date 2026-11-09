@@ -179,9 +179,9 @@ public class TableDataService {
         Where filter = scopedWhere(table, schema, filters, months);
 
         String valueExpr = switch (source.kind()) {
-            case SECONDS -> "`" + source.column() + "`";
-            case HMS -> "TIME_TO_SEC(`" + source.column() + "`)";
-            case RANGE -> "TIMESTAMPDIFF(SECOND, `" + source.startColumn() + "`, `" + source.endColumn() + "`)";
+            case SECONDS -> DurationSql.clean(source.column());
+            case HMS -> DurationSql.hmsSeconds(source.column());
+            case RANGE -> DurationSql.rangeSeconds(source.startColumn(), source.endColumn());
         };
         String guard = cols.stream().map(c -> "`" + c + "` IS NOT NULL").reduce((a, b) -> a + " AND " + b).orElseThrow();
         // A duration is non-negative by definition; drop the glitched rows the data actually carries

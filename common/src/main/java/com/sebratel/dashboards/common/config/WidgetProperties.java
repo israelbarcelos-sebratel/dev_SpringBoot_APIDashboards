@@ -1,5 +1,6 @@
 package com.sebratel.dashboards.common.config;
 
+import com.sebratel.dashboards.common.web.DurationSql;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -156,10 +157,10 @@ public class WidgetProperties {
         /** SQL for this metric in seconds; the column names come only from application.yml. */
         public String expressaoSegundos() {
             if (hms != null) {
-                return "TIME_TO_SEC(`" + hms + "`)";
+                return DurationSql.hmsSeconds(hms);
             }
             if (inicio != null && fim != null) {
-                return "TIMESTAMPDIFF(SECOND, `" + inicio + "`, `" + fim + "`)";
+                return DurationSql.rangeSeconds(inicio, fim);
             }
             throw new IllegalStateException("app.widget.tempos: informe 'hms' ou 'inicio' e 'fim'.");
         }

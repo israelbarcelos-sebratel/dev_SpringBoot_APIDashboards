@@ -3,6 +3,7 @@ package com.sebratel.dashboards.common.cache;
 import com.sebratel.dashboards.common.config.SemanticDomainProperties;
 import com.sebratel.dashboards.common.config.SemanticDomainProperties.Domain;
 import com.sebratel.dashboards.common.config.WidgetProperties;
+import com.sebratel.dashboards.common.web.DurationSql;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -125,7 +126,7 @@ public class ResumoDiario {
                     .append(dataCol).append("`, 10) AS dia, COUNT(*) AS total");
             for (int i = 0; i < metricas.size(); i++) {
                 String expr = widget.getTempos().get(metricas.get(i)).expressaoSegundos();
-                String valido = "CASE WHEN " + expr + " >= 0 THEN " + expr + " END";
+                String valido = DurationSql.nonNegative(expr);
                 sql.append(", AVG(").append(valido).append(") AS m").append(i)
                    .append(", COUNT(").append(valido).append(") AS n").append(i);
             }
