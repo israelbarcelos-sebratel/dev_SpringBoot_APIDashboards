@@ -49,4 +49,20 @@ class DurationSqlTest {
         assertEquals(90, summary.totalSeconds());
         assertEquals(30.0, summary.meanSeconds());
     }
+
+    @Test
+    void boundedDropsDurationsAboveTheCeilingAndKeepsZero() {
+        assertEquals("CASE WHEN (d) >= 0 AND (d) <= 3600 THEN (d) END", DurationSql.bounded("d", 3600));
+        assertEquals(DurationSql.nonNegative("d"), DurationSql.bounded("d", null));
+    }
+
+    @Test
+    void metricAppliesItsMaxSegundosToTheValidExpression() {
+        WidgetProperties.Metrica m = new WidgetProperties.Metrica();
+        m.setInicio("data_fila");
+        m.setFim("data_atendimento");
+        assertEquals(DurationSql.nonNegative(m.expressaoSegundos()), m.expressaoValida());
+        m.setMaxSegundos(3600);
+        assertEquals(DurationSql.bounded(m.expressaoSegundos(), 3600), m.expressaoValida());
+    }
 }

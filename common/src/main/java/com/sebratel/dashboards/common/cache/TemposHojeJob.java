@@ -3,7 +3,6 @@ package com.sebratel.dashboards.common.cache;
 import com.sebratel.dashboards.common.config.SemanticDomainProperties;
 import com.sebratel.dashboards.common.config.SemanticDomainProperties.Domain;
 import com.sebratel.dashboards.common.config.WidgetProperties;
-import com.sebratel.dashboards.common.web.DurationSql;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -164,8 +163,8 @@ public class TemposHojeJob {
             sql.append(", CAST(`").append(colunas.get(i).getColuna()).append("` AS CHAR) AS c").append(i);
         }
         for (int i = 0; i < metricas.size(); i++) {
-            String expr = widget.getTempos().get(metricas.get(i)).expressaoSegundos();
-            sql.append(", ").append(DurationSql.nonNegative(expr)).append(" AS m").append(i);
+            sql.append(", ").append(widget.getTempos().get(metricas.get(i)).expressaoValida())
+               .append(" AS m").append(i);
         }
         boolean tmea = widget.getTmea().configurado();
         if (tmea) {
@@ -240,8 +239,7 @@ public class TemposHojeJob {
         List<String> metricas = List.copyOf(widget.getTempos().keySet());
         StringBuilder sql = new StringBuilder("SELECT `").append(atendenteCol).append("` AS atendente");
         for (int i = 0; i < metricas.size(); i++) {
-            String expr = widget.getTempos().get(metricas.get(i)).expressaoSegundos();
-            String valido = DurationSql.nonNegative(expr);
+            String valido = widget.getTempos().get(metricas.get(i)).expressaoValida();
             sql.append(", AVG(").append(valido).append(") AS m").append(i)
                .append(", COUNT(").append(valido).append(") AS n").append(i);
         }
