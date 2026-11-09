@@ -7,6 +7,7 @@ import com.sebratel.dashboards.common.schema.ColumnMetadata;
 import com.sebratel.dashboards.common.schema.ColumnType;
 import com.sebratel.dashboards.common.schema.SchemaIntrospector;
 import com.sebratel.dashboards.common.schema.TableSchema;
+import com.sebratel.dashboards.common.web.DurationSql;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -95,13 +96,14 @@ public class TemposAtendenteRefreshJob {
         for (Map.Entry<String, String> tempo : d.getTempos().entrySet()) {
             String metrica = tempo.getKey();
             String coluna = tempo.getValue();
+            String segundos = DurationSql.hmsSeconds(coluna);
+            String valido = DurationSql.nonNegative(segundos);
 
             String sql = "SELECT `" + atendenteCol + "` AS atendente, "
-                    + "AVG(TIME_TO_SEC(`" + coluna + "`)) AS segundos_medios, "
-                    + "COUNT(*) AS amostras "
+                    + "AVG(" + valido + ") AS segundos_medios, "
+                    + "COUNT(" + valido + ") AS amostras "
                     + "FROM `" + tabela + "` "
                     + "WHERE `" + atendenteCol + "` IS NOT NULL AND `" + atendenteCol + "` <> '' "
-                    + "AND `" + coluna + "` IS NOT NULL"
                     + windowClause
                     + " GROUP BY `" + atendenteCol + "`";
 
