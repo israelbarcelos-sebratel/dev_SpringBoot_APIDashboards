@@ -223,9 +223,9 @@
           Avisar se quem liga está em massiva
         </label>
         <p class="muted" style="margin:6px 0 12px">Aparece no topo da Native quando uma ligação chega.</p>
-        <label for="mz-agente">Meu código de agente (opcional)</label>
-        <input id="mz-agente" inputmode="numeric" maxlength="6" placeholder="ex.: 1234" />
-        <p class="muted" style="margin:-6px 0 12px">Se preencher, o aviso só aparece nas ligações do seu agente.</p>
+        <label for="mz-agente">Meu código de agente (automático)</label>
+        <input id="mz-agente" readonly placeholder="abra a Native e faça login" />
+        <p class="muted" style="margin:-6px 0 12px">Lido da Native em tempo real, de quem está logado agora. O aviso só aparece nas ligações desse agente.</p>
         <label style="display:flex; gap:8px; align-items:center; font-weight:500">
           <input type="checkbox" id="mz-diag" style="width:auto; margin:0" />
           Modo de teste (mostrar ligações ignoradas)

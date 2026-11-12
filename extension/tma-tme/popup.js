@@ -217,7 +217,7 @@ async function mzSalvar(patch) {
 async function mzMostrar() {
   const cfg = await mzLer();
   $("mz-aviso").checked = cfg.avisoLigacao !== false;
-  $("mz-agente").value = cfg.agente || "";
+  $("mz-agente").value = cfg.agenteDetectado || "";
   $("mz-diag").checked = cfg.diagnostico === true;
   $("mz-atalho").value = cfg.atalho || MZ_ATALHO_PADRAO;
 }
@@ -243,7 +243,9 @@ function mzDescrever(ev) {
 
 $("mz-aviso").addEventListener("change", (e) => mzSalvar({ avisoLigacao: e.target.checked }));
 $("mz-diag").addEventListener("change", (e) => mzSalvar({ diagnostico: e.target.checked }));
-$("mz-agente").addEventListener("change", (e) => mzSalvar({ agente: e.target.value.replace(/\D/g, "") }));
+chrome.storage.onChanged.addListener((mud, area) => {
+  if (area === "local" && mud[MZ_KEY]) $("mz-agente").value = mud[MZ_KEY].newValue?.agenteDetectado || "";
+});
 $("mz-atalho").addEventListener("keydown", async (ev) => {
   if (ev.key === "Tab") return;
   ev.preventDefault();
