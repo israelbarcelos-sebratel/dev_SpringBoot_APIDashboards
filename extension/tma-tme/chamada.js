@@ -47,6 +47,37 @@
     return d;
   }
 
+  /**
+   * Número do agente de quem está logado AGORA na Native (peer number, ex.: "5713"). A Native o guarda em
+   * localStorage ao logar; lemos na hora de cada evento, então quando outra pessoa entra no mesmo computador
+   * o valor acompanha a sessão dela. Nada é digitado nem guardado de uma sessão anterior.
+   */
+  function agenteLogado() {
+    try {
+      return digitos(localStorage.getItem("loggedUserPeerNumber"));
+    } catch (e) {
+      return "";
+    }
+  }
+
+  /** Publica o agente detectado para o popup mostrar (só leitura); grava apenas quando muda. */
+  let ultimoPublicado;
+  function publicarAgente() {
+    const atual = agenteLogado();
+    if (atual === ultimoPublicado || !chrome.runtime?.id) return;
+    ultimoPublicado = atual;
+    chrome.storage.local.get([CONFIG_KEY], (r) => {
+      try {
+        chrome.storage.local.set({ [CONFIG_KEY]: { ...(r[CONFIG_KEY] || {}), agenteDetectado: atual, agenteDetectadoEm: Date.now() } });
+      } catch (e) {
+        // extensão recarregada com a aba aberta
+      }
+    });
+  }
+  publicarAgente();
+  window.addEventListener("storage", publicarAgente); // login/logout em outra aba da Native
+  setInterval(publicarAgente, 15000); // login na mesma aba não dispara "storage"
+
   function config() {
     return new Promise((resolve) => {
       chrome.storage.local.get([CONFIG_KEY], (r) => resolve(r[CONFIG_KEY] || {}));
@@ -67,9 +98,10 @@
     const cfg = await config();
     if (cfg.avisoLigacao === false) return; // a pessoa desligou o aviso no popup
     const dados = msg.dados;
-    // Se a pessoa informou o código do agente dela (4 dígitos), só as ligações dela; vazio = qualquer uma
-    // que o painel mostre (a conta de atendente só recebe as próprias, mas a Native não garante).
-    const agente = digitos(cfg.agente);
+    // Só as ligações de quem está logado agora na Native; se o número não estiver disponível, não filtra
+    // (a conta de atendente só recebe as próprias, mas a Native não garante).
+    publicarAgente();
+    const agente = agenteLogado();
     if (agente && digitos(dados.agent) !== agente) {
       if (cfg.diagnostico) diagnostico(`Ignorada: é do agente ${digitos(dados.agent) || "?"}, não do ${agente}.`, msg);
       return;
