@@ -310,6 +310,10 @@ async function checarAtualizacaoPopup() {
   }
 }
 
+// Instalação por pasta não se atualiza sozinha: o Chrome responde "sem atualização". Diz o que fazer na mão.
+const INSTRUCOES_ATUALIZAR =
+  "Para atualizar:\n1. Baixe o zip novo e extraia por cima da pasta da extensão.\n2. Abra chrome://extensions.\n3. Clique no botão circular de recarregar (↻) da extensão Sebratel.\n4. Aperte F5 nas abas abertas.";
+
 $("update-btn").addEventListener("click", async () => {
   const btn = $("update-btn");
   btn.disabled = true;
@@ -319,7 +323,7 @@ $("update-btn").addEventListener("click", async () => {
     $("update-txt").textContent =
       r?.status === "update_available" ? "Baixando… a extensão recarrega sozinha."
       : r?.status === "throttled" ? "O Chrome pede para esperar alguns minutos. Tente de novo em instantes."
-      : "O Chrome ainda não liberou a nova versão; ele tenta sozinho e o aviso some ao atualizar.";
+      : INSTRUCOES_ATUALIZAR;
   } catch {
     $("update-txt").textContent = "Não foi possível pedir agora. O Chrome atualiza sozinho em algumas horas.";
   }
